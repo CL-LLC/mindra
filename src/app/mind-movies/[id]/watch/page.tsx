@@ -7,7 +7,7 @@ import { useConvexAuth } from 'convex/react';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { VideoPlayer } from '../../../../components/VideoPlayer';
-import { ArrowLeft, Clock, Film, CheckCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Clock, Film, CheckCircle, Loader2, RefreshCw } from 'lucide-react';
 import { getSceneCopy, normalizeStoryboard } from '@/lib/mindmovie/storyboard';
 
 export default function WatchPage() {
@@ -50,7 +50,6 @@ export default function WatchPage() {
     );
   }
 
-  const isRendering = movie.status === 'draft' || movie.status === 'rendering' || !movie.videoUrl;
   const canWatch = Boolean(movie.videoUrl) && movie.status === 'ready';
 
   const handleVideoComplete = async () => {
@@ -91,9 +90,21 @@ export default function WatchPage() {
             <span>Back to Details</span>
           </button>
 
-          <h1 className="text-3xl font-bold text-white mb-2">{movie.title}</h1>
-          
-          <div className="flex items-center gap-4 text-slate-400 text-sm">
+          <div className="flex items-center gap-3 mb-2 flex-wrap">
+            <h1 className="text-3xl font-bold text-white">{movie.title}</h1>
+            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${movie.status === 'ready' ? 'border-emerald-400/20 bg-emerald-500/15 text-emerald-200' : movie.status === 'rendering' ? 'border-yellow-400/20 bg-yellow-500/15 text-yellow-200' : movie.status === 'archived' ? 'border-amber-400/20 bg-amber-500/15 text-amber-200' : 'border-slate-400/20 bg-slate-500/15 text-slate-200'}`}>{movie.status}</span>
+          </div>
+          <p className="text-slate-400 text-sm max-w-2xl">
+            {movie.status === 'ready'
+              ? 'The video is ready. You can watch it now or return to the detail page if you want to edit, archive, or share it.'
+              : movie.status === 'rendering'
+                ? 'The render is still in progress. Refresh in a minute or two, and the Watch Now path will show up once the video is ready.'
+                : movie.status === 'archived'
+                  ? 'This movie is archived, so it is tucked away from the main dashboard. Restore it from the detail page if you want to make changes or render again.'
+                  : 'This movie is still a draft. Render it from the detail page first, then come back here once the video is ready.'}
+          </p>
+
+          <div className="flex items-center gap-4 text-slate-400 text-sm mt-4 flex-wrap">
             <div className="flex items-center gap-1">
               <Clock className="w-4 h-4" />
               <span>{movie.duration ? formatDuration(movie.duration) : 'N/A'}</span>
@@ -122,11 +133,15 @@ export default function WatchPage() {
             <div className="aspect-video rounded-lg border border-slate-700 bg-slate-800 flex items-center justify-center px-6">
               <div className="max-w-md text-center">
                 <Loader2 className="w-16 h-16 text-slate-600 mx-auto mb-4 animate-spin" />
-                <p className="text-slate-100 text-lg font-medium mb-2">Your video is still getting ready</p>
+                <p className="text-slate-100 text-lg font-medium mb-2">Video not ready yet</p>
                 <p className="text-slate-400 text-sm mb-5">
                   {movie.status === 'rendering'
-                    ? 'Rendering is still in progress. This page will work once the video is ready.'
-                    : 'The video link is not available yet. It may still be rendering or needs a refresh.'}
+                    ? 'Rendering is still in progress. Refresh to check again, or go back to the detail page for the latest handoff message.'
+                    : movie.status === 'draft'
+                      ? 'This movie has not been rendered yet. Start the render from the detail page, then return here when it is ready.'
+                      : movie.status === 'archived'
+                        ? 'Archived movies can still be restored from the detail page. Once they are ready, you can watch them here.'
+                        : 'The video link is not available yet. Refresh to check for an updated render.'}
                 </p>
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
                   <button
@@ -140,6 +155,7 @@ export default function WatchPage() {
                     onClick={() => router.refresh()}
                     className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-500 transition"
                   >
+                    <RefreshCw className="w-4 h-4" />
                     Refresh status
                   </button>
                 </div>
