@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { useConvexAuth, useMutation, useQuery } from 'convex/react';
@@ -47,8 +47,15 @@ export default function MindMovieDetailPage() {
   const [handoffMessage, setHandoffMessage] = useState<string | null>(null);
   const updateStatus = useMutation(api.mindMovies.updateStatus);
 
+
   const movieId = useMemo(() => params.id as Id<'mindMovies'>, [params.id]);
   const movie = useQuery(api.mindMovies.getById, isAuthenticated ? { id: movieId } : 'skip');
+
+  useEffect(() => {
+    if (movie?.status === 'ready' && movie?.videoUrl) {
+      setHandoffMessage(null);
+    }
+  }, [movie?.status, movie?.videoUrl]);
 
   const handleRender = async () => {
     if (!movie) return;
@@ -121,7 +128,7 @@ export default function MindMovieDetailPage() {
           </div>
         </div>
 
-        {(movie.status === 'rendering' || handoffMessage) && <div className="mb-6 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-yellow-100 text-sm flex items-start gap-3"><Loader2 className="w-4 h-4 mt-0.5 animate-spin shrink-0" /><div><p className="font-medium">{movie.status === 'rendering' ? 'Rendering is underway.' : 'Render request sent.'}</p><p className="text-yellow-100/80 mt-1">{handoffMessage || 'Your video is being generated in the background. Refresh this page in a minute or two to see the Watch Now action.'}</p></div></div>}
+        {((movie.status === 'rendering') || (handoffMessage && movie.status !== 'ready')) && <div className="mb-6 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-yellow-100 text-sm flex items-start gap-3"><Loader2 className="w-4 h-4 mt-0.5 animate-spin shrink-0" /><div><p className="font-medium">{movie.status === 'rendering' ? 'Rendering is underway.' : 'Render request sent.'}</p><p className="text-yellow-100/80 mt-1">{handoffMessage || 'Your video is being generated in the background. Refresh this page in a minute or two to see the Watch Now action.'}</p></div></div>}
         {created && <div className="mb-6 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 text-green-300 text-sm flex items-center gap-2"><CheckCircle2 className="w-4 h-4" />Success. Your mind movie has been generated.</div>}
         {renderError && <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-300 text-sm">{renderError}</div>}
         {statusError && <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-300 text-sm">{statusError}</div>}
