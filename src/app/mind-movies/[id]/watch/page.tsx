@@ -5,9 +5,9 @@ import { api } from '../../../../../convex/_generated/api';
 import { Id } from '../../../../../convex/_generated/dataModel';
 import { useConvexAuth } from 'convex/react';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { VideoPlayer } from '../../../../components/VideoPlayer';
-import { ArrowLeft, Clock, Film, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Clock, Film, CheckCircle, Loader2 } from 'lucide-react';
 import { getSceneCopy, normalizeStoryboard } from '@/lib/mindmovie/storyboard';
 
 export default function WatchPage() {
@@ -15,6 +15,7 @@ export default function WatchPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [trackingComplete, setTrackingComplete] = useState(false);
+  const completionRequestedRef = useRef(false);
 
   const movieId = useMemo(() => params.id as Id<'mindMovies'>, [params.id]);
   const movie = useQuery(api.mindMovies.getById, isAuthenticated ? { id: movieId } : 'skip');
@@ -27,6 +28,11 @@ export default function WatchPage() {
       router.push('/sign-in');
     }
   }, [authLoading, isAuthenticated, router]);
+
+  useEffect(() => {
+    completionRequestedRef.current = false;
+    setTrackingComplete(false);
+  }, [movieId]);
 
   if (authLoading || !isAuthenticated) {
     return (
@@ -44,10 +50,13 @@ export default function WatchPage() {
     );
   }
 
-  const handleVideoComplete = async () => {
-    if (trackingComplete) return;
+  const isRendering = movie.status === 'draft' || movie.status === 'rendering' || !movie.videoUrl;
+  const canWatch = Boolean(movie.videoUrl) && movie.status === 'ready';
 
-    // Determine if it's morning or evening (12pm cutoff)
+  const handleVideoComplete = async () => {
+    if (completionRequestedRef.current) return;
+    completionRequestedRef.current = true;
+
     const hour = new Date().getHours();
     const isMorning = hour < 12;
 
@@ -59,6 +68,7 @@ export default function WatchPage() {
       }
       setTrackingComplete(true);
     } catch (error) {
+      completionRequestedRef.current = false;
       console.error('Failed to record tracking:', error);
     }
   };
@@ -72,7 +82,6 @@ export default function WatchPage() {
   return (
     <div className="min-h-screen bg-slate-900 p-8">
       <div className="max-w-5xl mx-auto">
-        {/* Header */}
         <div className="mb-6">
           <button
             onClick={() => router.push(`/mind-movies/${params.id}`)}
@@ -98,20 +107,47 @@ export default function WatchPage() {
           {trackingComplete && (
             <div className="mt-4 flex items-center gap-2 text-green-400 bg-green-900/20 px-4 py-2 rounded-lg">
               <CheckCircle className="w-5 h-5" />
-              <span>Session recorded! Keep up the great work.</span>
+              <span>Completion saved. Nice work — you can head back whenever you’re ready.</span>
             </div>
           )}
         </div>
 
-        {/* Video Player */}
         <div className="mb-8">
-          <VideoPlayer
-            videoUrl={movie.videoUrl ?? null}
-            onComplete={handleVideoComplete}
-          />
+          {canWatch ? (
+            <VideoPlayer
+              videoUrl={movie.videoUrl ?? null}
+              onComplete={handleVideoComplete}
+            />
+          ) : (
+            <div className="aspect-video rounded-lg border border-slate-700 bg-slate-800 flex items-center justify-center px-6">
+              <div className="max-w-md text-center">
+                <Loader2 className="w-16 h-16 text-slate-600 mx-auto mb-4 animate-spin" />
+                <p className="text-slate-100 text-lg font-medium mb-2">Your video is still getting ready</p>
+                <p className="text-slate-400 text-sm mb-5">
+                  {movie.status === 'rendering'
+                    ? 'Rendering is still in progress. This page will work once the video is ready.'
+                    : 'The video link is not available yet. It may still be rendering or needs a refresh.'}
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <button
+                    onClick={() => router.push(`/mind-movies/${params.id}`)}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-white/10 px-4 py-2 text-white hover:bg-white/20 transition"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    Back to details
+                  </button>
+                  <button
+                    onClick={() => router.refresh()}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-500 transition"
+                  >
+                    Refresh status
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Storyboard Chapters */}
         {movie.storyboard && movie.storyboard.length > 0 && (
           <div>
             <h2 className="text-xl font-semibold text-white mb-4">Storyboard</h2>
