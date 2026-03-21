@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
         affirmation: scene.affirmation,
         duration: scene.duration,
         backgroundColor: scene.backgroundColor,
+        backgroundImageUrl: scene.imageUrl,
       }));
 
       // Render the video using FFmpeg

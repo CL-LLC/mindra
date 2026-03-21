@@ -13,6 +13,7 @@ export interface RenderScene {
   affirmation: string;
   duration: number;
   backgroundColor?: string;
+  backgroundImageUrl?: string;
 }
 
 export interface RenderOptions {
@@ -49,10 +50,14 @@ export async function renderVideo(
       const bgColor = scene.backgroundColor || getRandomGradientColor();
       const fontSize = Math.floor(opts.height * 0.06);
       const maxTextWidth = Math.floor(opts.width * 0.76);
+      const backgroundImagePath = scene.backgroundImageUrl
+        ? await resolveBackgroundImage(scene.backgroundImageUrl, tempDir, i)
+        : undefined;
 
       await renderSceneFrame(frameFile, {
         text: scene.affirmation,
         backgroundColor: bgColor,
+        backgroundImagePath,
         width: opts.width,
         height: opts.height,
         fontSize,
@@ -139,6 +144,7 @@ async function renderSceneFrame(
   params: {
     text: string;
     backgroundColor: string;
+    backgroundImagePath?: string;
     width: number;
     height: number;
     fontSize: number;
@@ -146,18 +152,39 @@ async function renderSceneFrame(
   }
 ): Promise<void> {
   const script = String.raw`
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import sys
 
 output_path = sys.argv[1]
 text = sys.argv[2]
 background = sys.argv[3]
-width = int(sys.argv[4])
-height = int(sys.argv[5])
-font_size = int(sys.argv[6])
-max_text_width = int(sys.argv[7])
+background_image_path = sys.argv[4]
+width = int(sys.argv[5])
+height = int(sys.argv[6])
+font_size = int(sys.argv[7])
+max_text_width = int(sys.argv[8])
 
 img = Image.new('RGB', (width, height), background)
+if background_image_path and background_image_path != '':
+    try:
+        bg = Image.open(background_image_path).convert('RGB')
+        bg_ratio = bg.width / bg.height
+        target_ratio = width / height
+        if bg_ratio > target_ratio:
+            new_height = height
+            new_width = int(bg_ratio * new_height)
+        else:
+            new_width = width
+            new_height = int(new_width / bg_ratio)
+        bg = bg.resize((new_width, new_height), Image.LANCZOS)
+        left = max(0, (bg.width - width) // 2)
+        top = max(0, (bg.height - height) // 2)
+        bg = bg.crop((left, top, left + width, top + height))
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=1.5))
+        img.paste(bg, (0, 0))
+    except Exception:
+        pass
+
 draw = ImageDraw.Draw(img)
 
 font_candidates = [
@@ -216,6 +243,7 @@ img.save(output_path)
     shellQuote(outputPath),
     shellQuote(params.text),
     shellQuote(params.backgroundColor),
+    shellQuote(params.backgroundImagePath || ''),
     shellQuote(String(params.width)),
     shellQuote(String(params.height)),
     shellQuote(String(params.fontSize)),
@@ -223,6 +251,23 @@ img.save(output_path)
   ].join(' ');
 
   await execAsync(`${shellQuote(PYTHON)} ${args}`, { maxBuffer: 10 * 1024 * 1024 });
+}
+
+async function resolveBackgroundImage(url: string, tempDir: string, index: number): Promise<string | undefined> {
+  if (!url) return undefined;
+  if (url.startsWith('file://')) return url.slice('file://'.length);
+  if (url.startsWith('/') && !url.startsWith('//')) return url;
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    const response = await fetch(url);
+    if (!response.ok) return undefined;
+    const contentType = response.headers.get('content-type') || '';
+    const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
+    const target = path.join(tempDir, `background-${index}.${ext}`);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    await fs.writeFile(target, buffer);
+    return target;
+  }
+  return undefined;
 }
 
 function shellQuote(value: string): string {
