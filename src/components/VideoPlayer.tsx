@@ -26,6 +26,8 @@ export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
     setIsPlaying(false);
     setIsLoading(true);
     setLoadError(null);
+    setVolume(1);
+    setIsMuted(false);
   }, [videoUrl]);
 
   useEffect(() => {
@@ -75,7 +77,7 @@ export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
     const handleError = () => {
       setIsLoading(false);
       setIsPlaying(false);
-      setLoadError('Could not load this video. It may still be rendering or the file may be unavailable.');
+      setLoadError('We could not load this video. It may still be rendering, the file may be missing, or the request may have timed out.');
     };
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
@@ -101,6 +103,16 @@ export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
     };
   }, [onComplete, videoUrl]);
 
+  const retryLoad = () => {
+    setLoadError(null);
+    setIsLoading(true);
+    const video = videoRef.current;
+    if (video) {
+      video.currentTime = 0;
+      video.load();
+    }
+  };
+
   const togglePlay = async () => {
     const video = videoRef.current;
     if (!video) return;
@@ -119,7 +131,7 @@ export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
       console.error('Video playback failed:', error);
       setIsPlaying(false);
       setIsLoading(false);
-      setLoadError('Playback failed. Please try again.');
+      setLoadError('Playback failed. Try loading the video again, then press play once it is ready.');
     }
   };
 
@@ -187,14 +199,7 @@ export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
           <p className="text-white text-lg font-medium mb-2">Video unavailable</p>
           <p className="text-slate-400 text-sm mb-4">{loadError}</p>
           <button
-            onClick={() => {
-              setLoadError(null);
-              setIsLoading(true);
-              const video = videoRef.current;
-              if (video) {
-                video.load();
-              }
-            }}
+            onClick={retryLoad}
             className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 text-white hover:bg-white/20 transition"
           >
             <RotateCcw className="w-4 h-4" />
