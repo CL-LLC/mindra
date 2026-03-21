@@ -45,3 +45,6 @@ next-env.d.ts
 # Generated videos
 generated/
 temp/
+
+# Generated render outputs
+public/videos/
