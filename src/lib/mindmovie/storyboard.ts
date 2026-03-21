@@ -19,12 +19,12 @@ export function getSceneCopy(scene: Partial<NormalizedStoryboardScene> & Record<
   const affirmation = cleanText(scene.affirmation);
   const description = cleanText(scene.description);
   const text = cleanText(scene.text);
-  const copy = title || affirmation || description || text || `Scene ${index + 1}`;
+  const copy = title || affirmation || text || description || `Scene ${index + 1}`;
 
   return {
     title: title || `Scene ${index + 1}`,
-    description: description || affirmation || text || copy,
-    affirmation: affirmation || description || text || title || copy,
+    description: affirmation || text || description || copy,
+    affirmation: affirmation || text || description || title || copy,
   };
 }
 

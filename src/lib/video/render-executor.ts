@@ -54,13 +54,15 @@ export async function renderVideo(
       const bgColor = scene.backgroundColor || getRandomGradientColor();
       const fontSize = Math.floor(opts.height * 0.06);
       const maxTextWidth = Math.floor(opts.width * 0.76);
-      const generatedImagePath = await ensureSceneImageAsset({
-        scene,
-        tempDir,
-        index: i,
-        width: opts.width,
-        height: opts.height,
-      });
+      const generatedImagePath = i === scenes.length - 1
+        ? undefined
+        : await ensureSceneImageAsset({
+            scene,
+            tempDir,
+            index: i,
+            width: opts.width,
+            height: opts.height,
+          });
 
       await renderSceneFrame(frameFile, {
         text: scene.affirmation,
