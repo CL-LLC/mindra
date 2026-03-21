@@ -10,6 +10,7 @@ interface VideoPlayerProps {
 
 export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const completionFiredRef = useRef(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -19,11 +20,24 @@ export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    completionFiredRef.current = false;
+    setCurrentTime(0);
+    setDuration(0);
+    setIsPlaying(false);
+    setIsLoading(true);
+    setLoadError(null);
+  }, [videoUrl]);
+
+  useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || !videoUrl) return;
+
+    const syncPlaybackState = () => {
+      setIsPlaying(!video.paused && !video.ended);
+    };
 
     const handleLoadedMetadata = () => {
-      setDuration(video.duration);
+      setDuration(Number.isFinite(video.duration) ? video.duration : 0);
       setIsLoading(false);
       setLoadError(null);
     };
@@ -34,21 +48,33 @@ export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
 
     const handleEnded = () => {
       setIsPlaying(false);
-      if (onComplete) {
-        onComplete();
+      if (!completionFiredRef.current) {
+        completionFiredRef.current = true;
+        onComplete?.();
       }
     };
 
     const handleCanPlay = () => {
       setIsLoading(false);
+      setLoadError(null);
     };
 
     const handleWaiting = () => {
       setIsLoading(true);
     };
 
+    const handlePlaying = () => {
+      setIsLoading(false);
+      syncPlaybackState();
+    };
+
+    const handlePause = () => {
+      syncPlaybackState();
+    };
+
     const handleError = () => {
       setIsLoading(false);
+      setIsPlaying(false);
       setLoadError('Could not load this video. It may still be rendering or the file may be unavailable.');
     };
 
@@ -57,7 +83,11 @@ export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
     video.addEventListener('ended', handleEnded);
     video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('playing', handlePlaying);
+    video.addEventListener('pause', handlePause);
     video.addEventListener('error', handleError);
+
+    syncPlaybackState();
 
     return () => {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
@@ -65,20 +95,32 @@ export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
       video.removeEventListener('ended', handleEnded);
       video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('pause', handlePause);
       video.removeEventListener('error', handleError);
     };
-  }, [onComplete]);
+  }, [onComplete, videoUrl]);
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     const video = videoRef.current;
     if (!video) return;
 
-    if (isPlaying) {
-      video.pause();
-    } else {
-      video.play();
+    try {
+      if (video.paused || video.ended) {
+        setLoadError(null);
+        const playPromise = video.play();
+        if (playPromise) await playPromise;
+      } else {
+        video.pause();
+      }
+      setIsPlaying(!video.paused && !video.ended);
+      setIsLoading(false);
+    } catch (error) {
+      console.error('Video playback failed:', error);
+      setIsPlaying(false);
+      setIsLoading(false);
+      setLoadError('Playback failed. Please try again.');
     }
-    setIsPlaying(!isPlaying);
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -128,10 +170,10 @@ export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
   if (!videoUrl) {
     return (
       <div className="aspect-video bg-slate-800 rounded-lg flex items-center justify-center">
-        <div className="text-center">
+        <div className="text-center max-w-md px-6">
           <Loader2 className="w-16 h-16 text-slate-600 mx-auto mb-4 animate-spin" />
-          <p className="text-slate-400 text-lg">Video rendering...</p>
-          <p className="text-slate-500 text-sm mt-2">Your mind movie is being created</p>
+          <p className="text-slate-200 text-lg font-medium">Video is still rendering</p>
+          <p className="text-slate-500 text-sm mt-2">Your mind movie is still being prepared. Come back in a bit and refresh the page.</p>
         </div>
       </div>
     );
@@ -176,12 +218,12 @@ export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
           src={videoUrl}
           className="w-full h-full"
           onClick={togglePlay}
+          playsInline
+          preload="metadata"
         />
       </div>
 
-      {/* Controls */}
       <div className="bg-slate-900 px-4 py-3">
-        {/* Progress bar */}
         <div className="mb-3">
           <input
             type="range"
@@ -190,6 +232,7 @@ export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
             value={currentTime}
             onChange={handleSeek}
             className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+            disabled={!duration}
           />
           <div className="flex justify-between text-xs text-slate-400 mt-1">
             <span>{formatTime(currentTime)}</span>
@@ -197,7 +240,6 @@ export function VideoPlayer({ videoUrl, onComplete }: VideoPlayerProps) {
           </div>
         </div>
 
-        {/* Buttons */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
