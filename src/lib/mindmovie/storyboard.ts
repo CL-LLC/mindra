@@ -34,7 +34,7 @@ export function normalizeStoryboardScene(
 ): NormalizedStoryboardScene {
   const copy = getSceneCopy(scene, index);
   const duration = typeof scene.duration === 'number' && Number.isFinite(scene.duration) ? scene.duration : 10;
-  const imagePrompt = cleanText(scene.imagePrompt) || `${copy.description}`;
+  const imagePrompt = cleanText(scene.imagePrompt) || cleanText(scene.description) || cleanText(scene.text) || `Visual scene for ${copy.title}`;
   const imageUrl = cleanText(scene.imageUrl);
   const transition = scene.transition === 'cross-dissolve' || scene.transition === 'swipe' || scene.transition === 'fade'
     ? scene.transition
