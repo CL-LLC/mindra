@@ -17,9 +17,14 @@ function cleanGoal(goal: string) {
   return goal.replace(/[.]+$/g, "").trim();
 }
 
-function toAffirmation(goal: string) {
+function toAffirmation(goal: string, language: string) {
   const normalized = cleanGoal(goal);
   const lower = normalized.charAt(0).toLowerCase() + normalized.slice(1);
+  if (language === 'es') {
+    if (lower.startsWith('yo ')) return `Yo ${lower.slice(3)}`;
+    if (lower.startsWith('ser ') || lower.startsWith('convertirme ')) return `Yo ${lower}`;
+    return `Yo soy ${lower}`;
+  }
   if (lower.startsWith("i ")) return `I ${lower.slice(2)}`;
   if (lower.startsWith("be ") || lower.startsWith("become ")) return `I ${lower}`;
   return `I am ${lower}`;
@@ -36,11 +41,11 @@ function titleMood(title: string) {
   return { palette: "violet dawn and crisp cyan", style: "aspirational cinematic realism", musicTrack: "future-self-rise-110bpm" };
 }
 
-export function buildDeterministicScaffold(title: string, goals: string[]): MindMovieScaffold {
+export function buildDeterministicScaffold(title: string, goals: string[], language: string = 'en'): MindMovieScaffold {
   const safeGoals = goals.map(cleanGoal).filter(Boolean).slice(0, 6);
   const mood = titleMood(title);
 
-  const affirmations = safeGoals.map(toAffirmation);
+  const affirmations = safeGoals.map((goal) => toAffirmation(goal, language));
 
   const storyboard = affirmations.map((affirmation, i) => ({
     affirmation,
