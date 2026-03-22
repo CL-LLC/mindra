@@ -8,7 +8,6 @@ import { validateStoryboard } from '../../../lib/video/renderer';
 import { normalizeStoryboard } from '../../../lib/mindmovie/storyboard';
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL!;
-const TEST_SCENE_LIMIT = 4;
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,15 +31,14 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedStoryboard = normalizeStoryboard(movie.storyboard);
-    const renderStoryboard = normalizedStoryboard.slice(0, TEST_SCENE_LIMIT);
-    const storyboardValidation = validateStoryboard(renderStoryboard.map((scene: any) => ({ affirmation: scene.affirmation, duration: scene.duration, imagePrompt: scene.imagePrompt, transition: scene.transition })));
+    const storyboardValidation = validateStoryboard(normalizedStoryboard.map((scene: any) => ({ affirmation: scene.affirmation, duration: scene.duration, imagePrompt: scene.imagePrompt, transition: scene.transition })));
     if (!storyboardValidation.valid) return NextResponse.json({ error: 'Invalid storyboard', details: storyboardValidation.errors }, { status: 400 });
 
     await convex.mutation(api.mindMovies.updateStatus, { id, status: 'rendering' });
 
     try {
       const recordingsByIndex = new Map(voiceRecordings.map((recording: any) => [recording.affirmationIndex, recording]));
-      const scenes = renderStoryboard.map((scene: any, index: number) => {
+      const scenes = normalizedStoryboard.map((scene: any, index: number) => {
         const recording = recordingsByIndex.get(index);
         return {
           affirmation: movie.affirmations?.[index] || scene.affirmation,
