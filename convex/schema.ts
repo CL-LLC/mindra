@@ -38,6 +38,7 @@ export default defineSchema({
   mindMovies: defineTable({
     userId: v.id("users"),
     title: v.string(),
+    language: v.optional(v.union(v.literal('en'), v.literal('es'))),
     version: v.number(),
     status: v.union(v.literal("draft"), v.literal("rendering"), v.literal("ready"), v.literal("archived")),
     goals: v.array(v.string()),

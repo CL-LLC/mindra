@@ -9,6 +9,15 @@ import { api } from '../../../convex/_generated/api';
 import { buildDeterministicScaffold } from '@/lib/mindmovie/scaffold';
 import { normalizeStoryboard } from '@/lib/mindmovie/storyboard';
 
+function detectLanguage(texts: string[]) {
+  const sample = texts.join(' ').toLowerCase();
+  const spanishSignals = [' el ', ' la ', ' los ', ' las ', ' tengo ', ' quiero ', ' estoy ', ' ser ', ' conmigo', ' éxito', ' confianza', ' trabajo', ' dinero', ' salud', ' familia', ' mi ', ' mis '];
+  const englishSignals = [' the ', ' and ', ' to ', ' my ', ' is ', ' am ', ' want ', ' become ', ' confidence', ' career', ' health', ' money', ' family', ' daily '];
+  const spanishScore = spanishSignals.reduce((sum, s) => sum + (sample.includes(s) ? 1 : 0), 0);
+  const englishScore = englishSignals.reduce((sum, s) => sum + (sample.includes(s) ? 1 : 0), 0);
+  return spanishScore > englishScore ? 'es' : 'en';
+}
+
 const STEPS = [
   'Validating your inputs',
   'Generating premium affirmations',
@@ -54,10 +63,12 @@ export default function CreatePage() {
     try {
       setStepIndex(0);
 
+      const language = detectLanguage([normalizedTitle, ...goals]);
+
       setStepIndex(1);
-      let affirmations = await generateAffirmations({ goals });
+      let affirmations = await generateAffirmations({ goals, language });
       if (!affirmations?.length) {
-        affirmations = buildDeterministicScaffold(normalizedTitle, goals).affirmations;
+        affirmations = buildDeterministicScaffold(normalizedTitle, goals, language).affirmations;
       }
 
       setStepIndex(2);
@@ -72,6 +83,7 @@ export default function CreatePage() {
           goals,
           affirmations,
           duration: Math.max(affirmations.length * 10, 30),
+          language,
         });
 
         storyboard = normalizeStoryboard(generated.storyboard || []);
@@ -79,7 +91,7 @@ export default function CreatePage() {
         musicTrack = generated.musicTrack;
         duration = storyboard.reduce((sum, scene) => sum + (scene.duration || 10), 0);
       } catch {
-        const fallback = buildDeterministicScaffold(normalizedTitle, goals);
+        const fallback = buildDeterministicScaffold(normalizedTitle, goals, language);
         affirmations = fallback.affirmations;
         storyboard = normalizeStoryboard(fallback.storyboard);
         assets = fallback.assets;
@@ -88,7 +100,7 @@ export default function CreatePage() {
       }
 
       if (!storyboard.length) {
-        const fallback = buildDeterministicScaffold(normalizedTitle, goals);
+        const fallback = buildDeterministicScaffold(normalizedTitle, goals, language);
         affirmations = fallback.affirmations;
         storyboard = normalizeStoryboard(fallback.storyboard);
         assets = fallback.assets;

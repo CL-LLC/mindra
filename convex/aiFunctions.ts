@@ -19,10 +19,19 @@ function normalizeAffirmation(value: string) {
     .trim();
 }
 
-function diversifyAffirmations(goals: string[], affirmations: string[]) {
-  const identityStarters = ["I am", "I know", "I trust", "I embody", "I become"];
-  const actionStarters = ["I move", "I build", "I choose", "I create", "I practice"];
-  const groundingStarters = ["I deserve", "I accept", "I welcome", "I allow", "I honor"];
+function detectLanguage(texts: string[]) {
+  const sample = texts.join(' ').toLowerCase();
+  const spanishSignals = [" el ", " la ", " los ", " las ", " tengo ", " quiero ", " estoy ", " ser ", " conmigo", " éxito", " confianza", " trabajo", " dinero", " salud", " familia", " mi ", " mis "];
+  const englishSignals = [" the ", " and ", " to ", " my ", " is ", " am ", " want ", " become ", " confidence", " career", " health", " money", " family", " daily "];
+  const spanishScore = spanishSignals.reduce((sum, s) => sum + (sample.includes(s) ? 1 : 0), 0);
+  const englishScore = englishSignals.reduce((sum, s) => sum + (sample.includes(s) ? 1 : 0), 0);
+  return spanishScore > englishScore ? 'es' : 'en';
+}
+
+function diversifyAffirmations(goals: string[], affirmations: string[], language: string) {
+  const identityStarters = language === 'es' ? ["Soy", "Sé", "Confío", "Encajo", "Me convierto"] : ["I am", "I know", "I trust", "I embody", "I become"];
+  const actionStarters = language === 'es' ? ["Avanzo", "Construyo", "Elijo", "Creo", "Practico"] : ["I move", "I build", "I choose", "I create", "I practice"];
+  const groundingStarters = language === 'es' ? ["Merezco", "Acepto", "Acojo", "Permito", "Honro"] : ["I deserve", "I accept", "I welcome", "I allow", "I honor"];
 
   const cleanedGoals = goals.map((goal) => goal.trim()).filter(Boolean);
   const goalFocus = cleanedGoals.slice(0, 7);
@@ -39,8 +48,14 @@ function diversifyAffirmations(goals: string[], affirmations: string[]) {
     output.push(normalized);
   }
 
-  const templates = [
-    (goal: string) => `${identityStarters[0]} already becoming ${goal.replace(/^i\s+/i, "").replace(/^to\s+/i, "")}`,
+  const templates = language === 'es' ? [
+    (goal: string) => `${identityStarters[0]} ya estoy convirtiéndome en ${goal.replace(/^yo\s+/i, '').replace(/^quiero\s+/i, '')}`,
+    (goal: string) => `${groundingStarters[0]} la vida que construyo en torno a ${goal}`,
+    (goal: string) => `${actionStarters[0]} con confianza constante hacia ${goal}`,
+    (goal: string) => `${identityStarters[3]} la versión de mí que logra ${goal}`,
+    (goal: string) => `${actionStarters[3]} mi futuro con acciones diarias`,
+  ] : [
+    (goal: string) => `${identityStarters[0]} already becoming ${goal.replace(/^i\s+/i, '').replace(/^to\s+/i, '')}`,
     (goal: string) => `${groundingStarters[0]} the life I am building around ${goal}`,
     (goal: string) => `${actionStarters[0]} with steady confidence toward ${goal}`,
     (goal: string) => `${identityStarters[3]} the version of me who achieves ${goal}`,
@@ -63,6 +78,12 @@ function diversifyAffirmations(goals: string[], affirmations: string[]) {
   return output.slice(0, 7);
 }
 
+function languageInstruction(language: string) {
+  return language === 'es'
+    ? 'Write every affirmation in natural Spanish. Never translate to English.'
+    : 'Write every affirmation in natural English. Never translate to Spanish.';
+}
+
 // Generate storyboard from goals and affirmations
 export const generateStoryboard = action({
   args: {
@@ -70,6 +91,7 @@ export const generateStoryboard = action({
     goals: v.array(v.string()),
     affirmations: v.array(v.string()),
     duration: v.number(),
+    language: v.optional(v.union(v.literal('en'), v.literal('es'))),
   },
   returns: v.object({
     storyboard: v.array(v.any()),
@@ -83,9 +105,11 @@ export const generateStoryboard = action({
     }
 
     // Call OpenAI to generate storyboard
+    const language = args.language || detectLanguage([...args.goals, ...args.affirmations, args.title]);
     const prompt = `Create a storyboard for a ${args.duration}-second AI mind movie with this title: "${args.title}". 
     Goals: ${args.goals.join(", ")}
     Affirmations: ${args.affirmations.join(", ")}
+    Language lock: ${languageInstruction(language)}
     
     Please provide:
     1. Storyboard: Array of scenes with descriptions (scene, description, visualStyle, emotion)
@@ -129,6 +153,7 @@ export const generateStoryboard = action({
 export const generateAffirmations = action({
   args: {
     goals: v.array(v.string()),
+    language: v.optional(v.union(v.literal('en'), v.literal('es'))),
   },
   returns: v.array(v.string()),
   handler: async (ctx, args) => {
@@ -137,8 +162,12 @@ export const generateAffirmations = action({
       throw new Error("Unauthorized: Please sign in");
     }
 
+    const language = args.language || detectLanguage(args.goals);
+
     const prompt = `Create 7 deeply transformed affirmations for these goals:
     ${args.goals.join(", ")}
+
+    Language lock: ${languageInstruction(language)}
 
     Rules:
     - Do NOT copy the user goals verbatim
@@ -178,7 +207,7 @@ export const generateAffirmations = action({
 
     const data = JSON.parse(content);
     const affirmations: unknown[] = Array.isArray(data.affirmations) ? data.affirmations : [];
-    return diversifyAffirmations(args.goals, affirmations.map((item: unknown) => String(item)));
+    return diversifyAffirmations(args.goals, affirmations.map((item: unknown) => String(item)), language);
 
   },
 });
