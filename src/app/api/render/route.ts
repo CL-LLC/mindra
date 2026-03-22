@@ -39,15 +39,22 @@ export async function POST(request: NextRequest) {
     await convex.mutation(api.mindMovies.updateStatus, { id, status: 'rendering' });
 
     try {
-      const scenes = renderStoryboard.map((scene: any, index: number) => ({
-        affirmation: movie.affirmations?.[index] || scene.affirmation,
-        duration: scene.duration,
-        backgroundColor: scene.backgroundColor,
-        backgroundImageUrl: scene.imageUrl,
-        imagePrompt: scene.imagePrompt,
-        title: scene.title,
-        description: scene.description,
-      }));
+      const recordingsByIndex = new Map(voiceRecordings.map((recording: any) => [recording.affirmationIndex, recording]));
+      const scenes = renderStoryboard.map((scene: any, index: number) => {
+        const recording = recordingsByIndex.get(index);
+        return {
+          affirmation: movie.affirmations?.[index] || scene.affirmation,
+          duration: scene.duration,
+          backgroundColor: scene.backgroundColor,
+          backgroundImageUrl: scene.imageUrl,
+          imagePrompt: scene.imagePrompt,
+          title: scene.title,
+          description: scene.description,
+          narrationAudioDataUrl: recording?.audioDataUrl,
+          narrationMimeType: recording?.mimeType,
+          narrationDurationMs: recording?.durationMs,
+        };
+      });
 
       const videoBuffer = await renderVideo(scenes, { width: 1280, height: 720, fps: 30, quality: 'medium', musicTrack: movie.musicTrack });
       const fs = await import('fs/promises');

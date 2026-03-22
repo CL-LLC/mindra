@@ -11,9 +11,6 @@ const execAsync = promisify(exec);
 const PYTHON = process.env.PYTHON || 'python3';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
-const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'tts-1';
-const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || 'alloy';
-const ENABLE_NARRATION = process.env.MINDRA_ENABLE_NARRATION !== 'false';
 const openaiClient = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
 export interface RenderScene {
@@ -24,6 +21,9 @@ export interface RenderScene {
   imagePrompt?: string;
   title?: string;
   description?: string;
+  narrationAudioDataUrl?: string;
+  narrationMimeType?: string;
+  narrationDurationMs?: number;
 }
 
 export interface RenderOptions {
@@ -493,8 +493,6 @@ async function mixOptionalAudio(params: {
 }
 
 async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string): Promise<Array<{ path: string; start: number; duration: number }> | undefined> {
-  if (!ENABLE_NARRATION || !openaiClient) return undefined;
-
   const tracks: Array<{ path: string; start: number; duration: number }> = [];
   let start = 0;
 
@@ -507,17 +505,13 @@ async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string)
     }
 
     try {
-      const baseNarrationPath = await synthesizeAffirmationClip(tempDir, i, affirmation);
-      const clipDuration = await getMediaDurationSeconds(baseNarrationPath);
-      const repeatedNarrationPath = await buildRepeatedNarrationClip({
-        tempDir,
-        sceneIndex: i,
-        sourcePath: baseNarrationPath,
-        clipDuration,
-        sceneDuration: scene.duration,
-      });
+      const narrationPath = await resolveNarrationSource(scene, tempDir, i, affirmation);
+      if (!narrationPath) {
+        start += scene.duration;
+        continue;
+      }
 
-      tracks.push({ path: repeatedNarrationPath, start, duration: scene.duration });
+      tracks.push({ path: narrationPath, start, duration: scene.duration });
     } catch (error) {
       console.warn(`Scene narration failed for scene ${i + 1}; continuing without it.`, error);
     }
@@ -528,10 +522,32 @@ async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string)
   return tracks.length ? tracks : undefined;
 }
 
+async function resolveNarrationSource(scene: RenderScene, tempDir: string, sceneIndex: number, affirmation: string): Promise<string | undefined> {
+  const recordingPath = await writeNarrationRecording(tempDir, sceneIndex, scene.narrationAudioDataUrl, scene.narrationMimeType);
+  if (recordingPath) return recordingPath;
+  if (!openaiClient) return undefined;
+  const synthesizedPath = await synthesizeAffirmationClip(tempDir, sceneIndex, affirmation);
+  return synthesizedPath;
+}
+
+async function writeNarrationRecording(tempDir: string, sceneIndex: number, dataUrl?: string, mimeType?: string): Promise<string | undefined> {
+  if (!dataUrl) return undefined;
+  const prefix = 'base64,';
+  const base64Index = dataUrl.indexOf(prefix);
+  if (!dataUrl.startsWith('data:') || base64Index === -1) return undefined;
+  const meta = dataUrl.slice(5, base64Index - 1);
+  const payload = dataUrl.slice(base64Index + prefix.length);
+  const detectedMimeType = meta || mimeType || 'audio/webm';
+  const ext = mimeTypeToExtension(detectedMimeType);
+  const outputPath = path.join(tempDir, `narration-${sceneIndex}${ext}`);
+  await fs.writeFile(outputPath, Buffer.from(payload, 'base64'));
+  return outputPath;
+}
+
 async function synthesizeAffirmationClip(tempDir: string, sceneIndex: number, affirmation: string): Promise<string> {
   const response: any = await (openaiClient as any).audio.speech.create({
-    model: OPENAI_TTS_MODEL,
-    voice: OPENAI_TTS_VOICE,
+    model: process.env.MINDRA_TTS_MODEL || 'tts-1',
+    voice: process.env.MINDRA_TTS_VOICE || 'alloy',
     input: affirmation,
     format: 'mp3',
   });
@@ -542,34 +558,13 @@ async function synthesizeAffirmationClip(tempDir: string, sceneIndex: number, af
   return narrationPath;
 }
 
-async function buildRepeatedNarrationClip(params: {
-  tempDir: string;
-  sceneIndex: number;
-  sourcePath: string;
-  clipDuration: number;
-  sceneDuration: number;
-}): Promise<string> {
-  const { tempDir, sceneIndex, sourcePath, clipDuration, sceneDuration } = params;
-  const endBufferSeconds = 0.35;
-  const maxPlayableDuration = Math.max(0, sceneDuration - endBufferSeconds);
-  const repeatCount = Math.max(1, Math.floor(maxPlayableDuration / clipDuration));
-
-  if (repeatCount === 1) return sourcePath;
-
-  const repeatedPath = path.join(tempDir, `narration-${sceneIndex}-repeat.mp3`);
-  const listPath = path.join(tempDir, `narration-${sceneIndex}-repeat.txt`);
-  const listContent = Array.from({ length: repeatCount }, () => `file '${sourcePath.replace(/'/g, "\\'")}'`).join('\n');
-  await fs.writeFile(listPath, listContent);
-
-  const cmd = [
-    'ffmpeg -y',
-    `-f concat -safe 0 -i ${shellQuote(listPath)}`,
-    '-c copy',
-    shellQuote(repeatedPath),
-  ].join(' ');
-
-  await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
-  return repeatedPath;
+function mimeTypeToExtension(mimeType: string): string {
+  if (mimeType.includes('webm')) return '.webm';
+  if (mimeType.includes('wav')) return '.wav';
+  if (mimeType.includes('mpeg') || mimeType.includes('mp3')) return '.mp3';
+  if (mimeType.includes('mp4') || mimeType.includes('m4a')) return '.m4a';
+  if (mimeType.includes('ogg')) return '.ogg';
+  return '.webm';
 }
 
 async function getMediaDurationSeconds(filePath: string): Promise<number> {
