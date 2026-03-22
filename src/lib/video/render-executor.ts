@@ -46,7 +46,7 @@ export async function renderVideo(
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mindra-render-'));
   const musicAsset = getMusicAsset(opts.musicTrack, scenes.length);
   const musicPath = (await resolveMusicAssetPath(musicAsset)) || undefined;
-  const narrationPath = await buildNarrationTrack(scenes, tempDir);
+  const narrationTracks = await buildSceneNarrationTracks(scenes, tempDir);
 
   try {
     const sceneFiles: string[] = [];
@@ -108,7 +108,7 @@ export async function renderVideo(
     await execAsync(concatCmd, { maxBuffer: 20 * 1024 * 1024 });
 
     const totalDuration = scenes.reduce((sum, scene) => sum + scene.duration, 0);
-    const finalVideoFile = await mixOptionalAudio({ outputFile, tempDir, narrationPath, musicPath, musicAsset, totalDuration });
+    const finalVideoFile = await mixOptionalAudio({ outputFile, tempDir, narrationTracks, musicPath, musicAsset, totalDuration });
 
     const videoBuffer = await fs.readFile(finalVideoFile);
     console.log(`Render complete: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`);
@@ -394,32 +394,39 @@ export function estimateRenderTime(scenes: RenderScene[]): number {
 async function mixOptionalAudio(params: {
   outputFile: string;
   tempDir: string;
-  narrationPath?: string;
+  narrationTracks?: Array<{ path: string; start: number; duration: number }>;
   musicPath?: string;
   musicAsset: { volume: number; fadeIn: number; fadeOut: number; trackId: string };
   totalDuration: number;
 }): Promise<string> {
-  const { outputFile, tempDir, narrationPath, musicPath, musicAsset, totalDuration } = params;
-  if (!narrationPath && !musicPath) return outputFile;
+  const { outputFile, tempDir, narrationTracks = [], musicPath, musicAsset, totalDuration } = params;
+  if (!narrationTracks.length && !musicPath) return outputFile;
 
   const finalVideoFile = path.join(tempDir, 'output-final.mp4');
   const inputs: string[] = [];
-  if (narrationPath) inputs.push(`-i ${shellQuote(narrationPath)}`);
+  narrationTracks.forEach(track => inputs.push(`-i ${shellQuote(track.path)}`));
   if (musicPath) inputs.push(`-stream_loop -1 -i ${shellQuote(musicPath)}`);
 
   const filters: string[] = [];
-  const narrationInput = narrationPath ? (musicPath ? 1 : 1) : undefined;
-  const musicInput = musicPath ? (narrationPath ? 2 : 1) : undefined;
-  if (narrationPath && musicPath) {
+  const audioMixInputs: string[] = [];
+
+  narrationTracks.forEach((track, index) => {
+    const label = `narr${index}`;
+    filters.push(`[${index}:a]atrim=0:${track.duration.toFixed(3)},asetpts=PTS-STARTPTS,adelay=${Math.round(track.start * 1000)}|${Math.round(track.start * 1000)}[${label}]`);
+    audioMixInputs.push(`[${label}]`);
+  });
+
+  const musicInputIndex = narrationTracks.length;
+  if (musicPath) {
     const fadeOutStart = Math.max(0.1, totalDuration - musicAsset.fadeOut);
-    filters.push(`[${musicInput}:a]atrim=0:${totalDuration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${musicAsset.volume},afade=t=in:st=0:d=${musicAsset.fadeIn},afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${musicAsset.fadeOut}[music]`);
-    filters.push(`[${narrationInput}:a]atrim=0:${totalDuration.toFixed(3)},asetpts=PTS-STARTPTS[narr]`);
-    filters.push(`[narr][music]amix=inputs=2:duration=first:dropout_transition=2[aout]`);
-  } else if (narrationPath) {
-    filters.push(`[${narrationInput}:a]atrim=0:${totalDuration.toFixed(3)},asetpts=PTS-STARTPTS[aout]`);
-  } else if (musicPath) {
-    const fadeOutStart = Math.max(0.1, totalDuration - musicAsset.fadeOut);
-    filters.push(`[${musicInput}:a]atrim=0:${totalDuration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${musicAsset.volume},afade=t=in:st=0:d=${musicAsset.fadeIn},afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${musicAsset.fadeOut}[aout]`);
+    filters.push(`[${musicInputIndex}:a]atrim=0:${totalDuration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${musicAsset.volume},afade=t=in:st=0:d=${musicAsset.fadeIn},afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${musicAsset.fadeOut}[music]`);
+    audioMixInputs.push('[music]');
+  }
+
+  if (audioMixInputs.length === 1) {
+    filters.push(`${audioMixInputs[0]}anull[aout]`);
+  } else {
+    filters.push(`${audioMixInputs.join('')}amix=inputs=${audioMixInputs.length}:duration=longest:dropout_transition=2[aout]`);
   }
 
   const cmd = [
@@ -436,7 +443,10 @@ async function mixOptionalAudio(params: {
   ].join(' ');
 
   try {
-    console.log(`Adding ${narrationPath ? 'narration' : ''}${narrationPath && musicPath ? ' + ' : ''}${musicPath ? 'music' : ''} audio...`);
+    const mixParts = [];
+    if (narrationTracks.length) mixParts.push(`${narrationTracks.length} scene narration track${narrationTracks.length === 1 ? '' : 's'}`);
+    if (musicPath) mixParts.push('music');
+    console.log(`Adding ${mixParts.join(' + ')} audio...`);
     await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
     return finalVideoFile;
   } catch (audioError) {
@@ -445,25 +455,38 @@ async function mixOptionalAudio(params: {
   }
 }
 
-async function buildNarrationTrack(scenes: RenderScene[], tempDir: string): Promise<string | undefined> {
+async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string): Promise<Array<{ path: string; start: number; duration: number }> | undefined> {
   if (!ENABLE_NARRATION || !openaiClient) return undefined;
-  const affirmations = scenes.map(scene => scene.affirmation.trim()).filter(Boolean);
-  if (!affirmations.length) return undefined;
 
-  try {
-    const response: any = await (openaiClient as any).audio.speech.create({
-      model: OPENAI_TTS_MODEL,
-      voice: OPENAI_TTS_VOICE,
-      input: affirmations.join('. '),
-      format: 'mp3',
-    });
+  const tracks: Array<{ path: string; start: number; duration: number }> = [];
+  let start = 0;
 
-    const narrationPath = path.join(tempDir, 'narration.mp3');
-    const buffer = Buffer.from(await response.arrayBuffer());
-    await fs.writeFile(narrationPath, buffer);
-    return narrationPath;
-  } catch (error) {
-    console.warn('Narration generation failed; continuing without voiceover.', error);
-    return undefined;
+  for (let i = 0; i < scenes.length; i++) {
+    const scene = scenes[i];
+    const affirmation = scene.affirmation.trim();
+    if (!affirmation) {
+      start += scene.duration;
+      continue;
+    }
+
+    try {
+      const response: any = await (openaiClient as any).audio.speech.create({
+        model: OPENAI_TTS_MODEL,
+        voice: OPENAI_TTS_VOICE,
+        input: affirmation,
+        format: 'mp3',
+      });
+
+      const narrationPath = path.join(tempDir, `narration-${i}.mp3`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      await fs.writeFile(narrationPath, buffer);
+      tracks.push({ path: narrationPath, start, duration: scene.duration });
+    } catch (error) {
+      console.warn(`Scene narration failed for scene ${i + 1}; continuing without it.`, error);
+    }
+
+    start += scene.duration;
   }
+
+  return tracks.length ? tracks : undefined;
 }
