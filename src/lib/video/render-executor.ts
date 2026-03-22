@@ -21,6 +21,9 @@ export interface RenderScene {
   duration: number;
   backgroundColor?: string;
   backgroundImageUrl?: string;
+  imagePrompt?: string;
+  title?: string;
+  description?: string;
 }
 
 export interface RenderOptions {
@@ -45,7 +48,7 @@ export async function renderVideo(
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mindra-render-'));
   const musicAsset = getMusicAsset(opts.musicTrack, scenes.length);
-  const musicPath = (await resolveMusicAssetPath(musicAsset)) || undefined;
+  const musicPath = (await resolveMusicAssetPath(musicAsset)) || (await ensureFallbackMusicAsset(tempDir, musicAsset, scenes.length));
   const narrationTracks = await buildSceneNarrationTracks(scenes, tempDir);
 
   try {
@@ -67,9 +70,10 @@ export async function renderVideo(
             width: opts.width,
             height: opts.height,
           });
+      const sceneOverlayText = scene.affirmation?.trim() || scene.title?.trim() || scene.description?.trim() || `Scene ${i + 1}`;
 
       await renderSceneFrame(frameFile, {
-        text: scene.affirmation,
+        text: sceneOverlayText,
         backgroundColor: bgColor,
         backgroundImagePath: generatedImagePath,
         width: opts.width,
@@ -255,7 +259,7 @@ async function ensureSceneImageAsset(params: {
   if (existingAsset) return existingAsset;
 
   const generatedAsset = await generateSceneImageAsset({
-    prompt: scene.affirmation,
+    prompt: getSceneVisualPrompt(scene, index),
     tempDir,
     index,
     width,
@@ -280,7 +284,7 @@ async function generateSceneImageAsset(params: {
     try {
       const response: any = await (openaiClient as any).images.generate({
         model: OPENAI_IMAGE_MODEL,
-        prompt: `Cinematic visual metaphor for the affirmation: ${prompt}. No text, no watermark, rich lighting, realistic composition.`,
+        prompt: `Cinematic scene image for video production. Depict the scene faithfully: ${prompt}. No text, no watermark, rich lighting, realistic composition.`,
         size,
       });
 
@@ -363,6 +367,37 @@ img.save(output_path)
   const scriptPath = path.join(path.dirname(outputPath), 'fallback-scene.py');
   await fs.writeFile(scriptPath, script);
   await execAsync(`${shellQuote(PYTHON)} ${shellQuote(scriptPath)} ${shellQuote(outputPath)} ${shellQuote(prompt)} ${shellQuote(String(width))} ${shellQuote(String(height))}`, { maxBuffer: 10 * 1024 * 1024 });
+}
+
+async function ensureFallbackMusicAsset(tempDir: string, musicAsset: { trackId: string; volume: number; fadeIn: number; fadeOut: number }, sceneCount: number): Promise<string | undefined> {
+  const fallbackPath = path.join(tempDir, `${musicAsset.trackId || 'mindra-fallback'}-${sceneCount}.wav`);
+  try {
+    const duration = Math.max(8, sceneCount * 10);
+    const cmd = [
+      'ffmpeg -y',
+      `-f lavfi -i ${shellQuote(`sine=frequency=220:duration=${duration}`)}`,
+      `-f lavfi -i ${shellQuote(`sine=frequency=330:duration=${duration}`)}`,
+      `-filter_complex ${shellQuote(`[0:a]volume=0.22[a0];[1:a]volume=0.12[a1];[a0][a1]amix=inputs=2:duration=longest:dropout_transition=2[aout]`)}`,
+      '-map [aout]',
+      '-c:a pcm_s16le',
+      shellQuote(fallbackPath),
+    ].join(' ');
+    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    return fallbackPath;
+  } catch (error) {
+    console.warn('Fallback music generation failed.', error);
+    return undefined;
+  }
+}
+
+function getSceneVisualPrompt(scene: RenderScene, index: number): string {
+  const parts = [scene.title, scene.description, scene.imagePrompt, scene.affirmation]
+    .map(part => part?.trim())
+    .filter(Boolean) as string[];
+
+  const lead = parts[0] || `Scene ${index + 1}`;
+  const support = parts.slice(1).join(' | ');
+  return support ? `${lead}. ${support}` : lead;
 }
 
 async function resolveBackgroundImage(url: string, tempDir: string, index: number): Promise<string | undefined> {
