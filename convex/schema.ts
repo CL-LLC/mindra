@@ -2,10 +2,17 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 
+const voiceRecordingValidator = v.object({
+  affirmationIndex: v.number(),
+  recordedAt: v.number(),
+  mimeType: v.string(),
+  audioDataUrl: v.string(),
+  durationMs: v.optional(v.number()),
+});
+
 export default defineSchema({
   ...authTables,
   users: defineTable({
-    // Required by Convex Auth.
     name: v.optional(v.string()),
     image: v.optional(v.string()),
     email: v.optional(v.string()),
@@ -13,8 +20,6 @@ export default defineSchema({
     phone: v.optional(v.string()),
     phoneVerificationTime: v.optional(v.number()),
     isAnonymous: v.optional(v.boolean()),
-
-    // App-specific profile fields, initialized after first successful sign-in.
     imageUrl: v.optional(v.string()),
     timezone: v.optional(v.string()),
     subscription: v.optional(v.union(v.literal("free"), v.literal("pro"), v.literal("ultra"))),
@@ -39,6 +44,7 @@ export default defineSchema({
     affirmations: v.array(v.string()),
     storyboard: v.any(),
     assets: v.array(v.any()),
+    voiceRecordings: v.optional(v.array(voiceRecordingValidator)),
     videoUrl: v.optional(v.string()),
     videoStorageId: v.optional(v.id("_storage")),
     thumbnailUrl: v.optional(v.string()),
