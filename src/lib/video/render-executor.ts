@@ -515,11 +515,10 @@ async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string)
         continue;
       }
 
-      const duration = narration.sourceType === 'recorded'
-        ? Math.min(scene.duration, await getMediaDurationSeconds(narration.path))
-        : scene.duration;
+      const duration = scene.duration;
+      const repeat = narration.sourceType === 'tts' || narration.sourceType === 'recorded';
 
-      tracks.push({ path: narration.path, start, duration, repeat: narration.sourceType === 'tts', sourceType: narration.sourceType });
+      tracks.push({ path: narration.path, start, duration, repeat, sourceType: narration.sourceType });
     } catch (error) {
       console.warn(`Scene narration failed for scene ${i + 1}; continuing without it.`, error);
     }
