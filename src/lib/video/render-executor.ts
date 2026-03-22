@@ -429,7 +429,7 @@ export function estimateRenderTime(scenes: RenderScene[]): number {
 async function mixOptionalAudio(params: {
   outputFile: string;
   tempDir: string;
-  narrationTracks?: Array<{ path: string; start: number; duration: number; repeat?: boolean }>;
+  narrationTracks?: Array<{ path: string; start: number; duration: number; clipDuration: number; repeat?: boolean }>;
   musicPath?: string;
   musicAsset: { volume: number; fadeIn: number; fadeOut: number; trackId: string };
   totalDuration: number;
@@ -452,22 +452,26 @@ async function mixOptionalAudio(params: {
   narrationTracks.forEach((track, index) => {
     const label = `narr${index}`;
     const inputIndex = narrationInputOffset + index;
-    const trimEnd = Math.min(track.duration, totalDuration);
-    filters.push(`[${inputIndex}:a]atrim=0:${trimEnd.toFixed(3)},asetpts=PTS-STARTPTS,adelay=${Math.round(track.start * 1000)}|${Math.round(track.start * 1000)}[${label}]`);
+    const usableDuration = track.repeat && track.clipDuration > 0
+      ? Math.max(track.clipDuration, Math.floor(track.duration / track.clipDuration) * track.clipDuration)
+      : Math.min(track.duration, totalDuration);
+    const voiceGain = track.repeat ? 2.6 : 2.1;
+    filters.push(`[${inputIndex}:a]atrim=0:${usableDuration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${voiceGain},alimiter=limit=0.92,adelay=${Math.round(track.start * 1000)}|${Math.round(track.start * 1000)}[${label}]`);
     audioMixInputs.push(`[${label}]`);
   });
 
   const musicInputIndex = narrationInputOffset + narrationTracks.length;
   if (musicPath) {
     const fadeOutStart = Math.max(0.1, totalDuration - musicAsset.fadeOut);
-    filters.push(`[${musicInputIndex}:a]atrim=0:${totalDuration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${musicAsset.volume},afade=t=in:st=0:d=${musicAsset.fadeIn},afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${musicAsset.fadeOut}[music]`);
+    const musicGain = Math.max(0.06, Math.min(musicAsset.volume, 0.14));
+    filters.push(`[${musicInputIndex}:a]atrim=0:${totalDuration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${musicGain},afade=t=in:st=0:d=${musicAsset.fadeIn},afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${musicAsset.fadeOut}[music]`);
     audioMixInputs.push('[music]');
   }
 
   if (audioMixInputs.length === 1) {
     filters.push(`${audioMixInputs[0]}anull[aout]`);
   } else {
-    filters.push(`${audioMixInputs.join('')}amix=inputs=${audioMixInputs.length}:duration=longest:dropout_transition=2[aout]`);
+    filters.push(`${audioMixInputs.join('')}amix=inputs=${audioMixInputs.length}:duration=longest:dropout_transition=0,alimiter=limit=0.96[aout]`);
   }
 
   const cmd = [
@@ -496,8 +500,8 @@ async function mixOptionalAudio(params: {
   }
 }
 
-async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string): Promise<Array<{ path: string; start: number; duration: number }> | undefined> {
-  const tracks: Array<{ path: string; start: number; duration: number; repeat: boolean; sourceType: 'recorded' | 'tts' }> = [];
+async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string): Promise<Array<{ path: string; start: number; duration: number; clipDuration: number; repeat: boolean; sourceType: 'recorded' | 'tts' }> | undefined> {
+  const tracks: Array<{ path: string; start: number; duration: number; clipDuration: number; repeat: boolean; sourceType: 'recorded' | 'tts' }> = [];
   let start = 0;
 
   for (let i = 0; i < scenes.length; i++) {
@@ -517,8 +521,9 @@ async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string)
 
       const duration = scene.duration;
       const repeat = narration.sourceType === 'tts' || narration.sourceType === 'recorded';
+      const clipDuration = await getMediaDurationSeconds(narration.path);
 
-      tracks.push({ path: narration.path, start, duration, repeat, sourceType: narration.sourceType });
+      tracks.push({ path: narration.path, start, duration, clipDuration, repeat, sourceType: narration.sourceType });
     } catch (error) {
       console.warn(`Scene narration failed for scene ${i + 1}; continuing without it.`, error);
     }
