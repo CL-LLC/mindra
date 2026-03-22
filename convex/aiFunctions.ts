@@ -11,12 +11,16 @@ function getOpenAIClient() {
   return new OpenAI({ apiKey });
 }
 
-function normalizeAffirmation(value: string) {
+function normalizeText(value: string) {
   return value
     .replace(/\s+/g, " ")
     .replace(/^[\-•\d.\)\s]+/, "")
     .replace(/["'`]+/g, "")
     .trim();
+}
+
+function normalizeAffirmation(value: string) {
+  return normalizeText(value);
 }
 
 function detectLanguage(texts: string[]) {
@@ -84,6 +88,60 @@ function languageInstruction(language: string) {
     : 'Write every affirmation in natural English. Never translate to Spanish.';
 }
 
+export const proposeCreateDraft = action({
+  args: {
+    input: v.string(),
+  },
+  returns: v.object({
+    title: v.string(),
+    goals: v.array(v.string()),
+    language: v.union(v.literal('en'), v.literal('es')),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
+      throw new Error("Unauthorized: Please sign in");
+    }
+
+    const trimmedInput = args.input.trim();
+    if (!trimmedInput) {
+      throw new Error("Add a short description of what you want to accomplish.");
+    }
+
+    const language = detectLanguage([trimmedInput]) as 'en' | 'es';
+    const response = await getOpenAIClient().chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: `You are helping a user start a Mindra mind movie. ${languageInstruction(language)} Return valid JSON only.`,
+        },
+        {
+          role: "user",
+          content: `User input: ${trimmedInput}\n\nCreate:\n- a concise, compelling title\n- 3 to 5 concrete goals\n\nRules:\n- Use the same language as the input\n- Keep the title short, clear, and motivating\n- Rewrite the goals into concise goal statements\n- Do not add explanations\n\nReturn JSON in this exact shape:\n{ "title": "...", "goals": ["...", "..."] }`,
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.5,
+    });
+
+    const content = response.choices[0].message.content;
+    if (!content) throw new Error("Failed to generate a draft title and goals.");
+
+    const parsed = JSON.parse(content);
+    const title = normalizeText(String(parsed.title || "")).slice(0, 80);
+    const goals: string[] = Array.isArray(parsed.goals)
+      ? parsed.goals.map((goal: unknown) => normalizeText(String(goal))).filter(Boolean).slice(0, 5)
+      : [];
+
+    if (!title || goals.length === 0) {
+      throw new Error("AI returned an incomplete draft. Try again or switch to manual entry.");
+    }
+
+    return { title, goals, language };
+  },
+});
+
 // Generate storyboard from goals and affirmations
 export const generateStoryboard = action({
   args: {
@@ -104,7 +162,6 @@ export const generateStoryboard = action({
       throw new Error("Unauthorized: Please sign in");
     }
 
-    // Call OpenAI to generate storyboard
     const language = args.language || detectLanguage([...args.goals, ...args.affirmations, args.title]);
     const prompt = `Create a storyboard for a ${args.duration}-second AI mind movie with this title: "${args.title}". 
     Goals: ${args.goals.join(", ")}
