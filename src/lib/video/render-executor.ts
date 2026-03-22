@@ -445,13 +445,15 @@ async function mixOptionalAudio(params: {
   const filters: string[] = [];
   const audioMixInputs: string[] = [];
 
+  const narrationInputOffset = 1; // input #0 is the silent scene video; narration starts at input #1
   narrationTracks.forEach((track, index) => {
     const label = `narr${index}`;
-    filters.push(`[${index}:a]atrim=0:${track.duration.toFixed(3)},asetpts=PTS-STARTPTS,adelay=${Math.round(track.start * 1000)}|${Math.round(track.start * 1000)}[${label}]`);
+    const inputIndex = narrationInputOffset + index;
+    filters.push(`[${inputIndex}:a]atrim=0:${track.duration.toFixed(3)},asetpts=PTS-STARTPTS,adelay=${Math.round(track.start * 1000)}|${Math.round(track.start * 1000)}[${label}]`);
     audioMixInputs.push(`[${label}]`);
   });
 
-  const musicInputIndex = narrationTracks.length;
+  const musicInputIndex = narrationInputOffset + narrationTracks.length;
   if (musicPath) {
     const fadeOutStart = Math.max(0.1, totalDuration - musicAsset.fadeOut);
     filters.push(`[${musicInputIndex}:a]atrim=0:${totalDuration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${musicAsset.volume},afade=t=in:st=0:d=${musicAsset.fadeIn},afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${musicAsset.fadeOut}[music]`);
