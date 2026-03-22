@@ -429,7 +429,7 @@ export function estimateRenderTime(scenes: RenderScene[]): number {
 async function mixOptionalAudio(params: {
   outputFile: string;
   tempDir: string;
-  narrationTracks?: Array<{ path: string; start: number; duration: number }>;
+  narrationTracks?: Array<{ path: string; start: number; duration: number; repeat?: boolean }>;
   musicPath?: string;
   musicAsset: { volume: number; fadeIn: number; fadeOut: number; trackId: string };
   totalDuration: number;
@@ -439,7 +439,10 @@ async function mixOptionalAudio(params: {
 
   const finalVideoFile = path.join(tempDir, 'output-final.mp4');
   const inputs: string[] = [];
-  narrationTracks.forEach(track => inputs.push(`-i ${shellQuote(track.path)}`));
+  narrationTracks.forEach(track => {
+    const input = track.repeat ? `-stream_loop -1 -i ${shellQuote(track.path)}` : `-i ${shellQuote(track.path)}`;
+    inputs.push(input);
+  });
   if (musicPath) inputs.push(`-stream_loop -1 -i ${shellQuote(musicPath)}`);
 
   const filters: string[] = [];
@@ -449,7 +452,8 @@ async function mixOptionalAudio(params: {
   narrationTracks.forEach((track, index) => {
     const label = `narr${index}`;
     const inputIndex = narrationInputOffset + index;
-    filters.push(`[${inputIndex}:a]atrim=0:${track.duration.toFixed(3)},asetpts=PTS-STARTPTS,adelay=${Math.round(track.start * 1000)}|${Math.round(track.start * 1000)}[${label}]`);
+    const trimEnd = Math.min(track.duration, totalDuration);
+    filters.push(`[${inputIndex}:a]atrim=0:${trimEnd.toFixed(3)},asetpts=PTS-STARTPTS,adelay=${Math.round(track.start * 1000)}|${Math.round(track.start * 1000)}[${label}]`);
     audioMixInputs.push(`[${label}]`);
   });
 
@@ -493,7 +497,7 @@ async function mixOptionalAudio(params: {
 }
 
 async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string): Promise<Array<{ path: string; start: number; duration: number }> | undefined> {
-  const tracks: Array<{ path: string; start: number; duration: number }> = [];
+  const tracks: Array<{ path: string; start: number; duration: number; repeat: boolean; sourceType: 'recorded' | 'tts' }> = [];
   let start = 0;
 
   for (let i = 0; i < scenes.length; i++) {
@@ -505,13 +509,17 @@ async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string)
     }
 
     try {
-      const narrationPath = await resolveNarrationSource(scene, tempDir, i, affirmation);
-      if (!narrationPath) {
+      const narration = await resolveNarrationSource(scene, tempDir, i, affirmation);
+      if (!narration) {
         start += scene.duration;
         continue;
       }
 
-      tracks.push({ path: narrationPath, start, duration: scene.duration });
+      const duration = narration.sourceType === 'recorded'
+        ? Math.min(scene.duration, await getMediaDurationSeconds(narration.path))
+        : scene.duration;
+
+      tracks.push({ path: narration.path, start, duration, repeat: narration.sourceType === 'tts', sourceType: narration.sourceType });
     } catch (error) {
       console.warn(`Scene narration failed for scene ${i + 1}; continuing without it.`, error);
     }
@@ -522,12 +530,12 @@ async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string)
   return tracks.length ? tracks : undefined;
 }
 
-async function resolveNarrationSource(scene: RenderScene, tempDir: string, sceneIndex: number, affirmation: string): Promise<string | undefined> {
+async function resolveNarrationSource(scene: RenderScene, tempDir: string, sceneIndex: number, affirmation: string): Promise<{ path: string; sourceType: 'recorded' | 'tts' } | undefined> {
   const recordingPath = await writeNarrationRecording(tempDir, sceneIndex, scene.narrationAudioDataUrl, scene.narrationMimeType);
-  if (recordingPath) return recordingPath;
+  if (recordingPath) return { path: recordingPath, sourceType: 'recorded' };
   if (!openaiClient) return undefined;
   const synthesizedPath = await synthesizeAffirmationClip(tempDir, sceneIndex, affirmation);
-  return synthesizedPath;
+  return { path: synthesizedPath, sourceType: 'tts' };
 }
 
 async function writeNarrationRecording(tempDir: string, sceneIndex: number, dataUrl?: string, mimeType?: string): Promise<string | undefined> {
