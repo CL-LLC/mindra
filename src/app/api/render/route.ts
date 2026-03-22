@@ -8,6 +8,7 @@ import { validateStoryboard } from '../../../lib/video/renderer';
 import { normalizeStoryboard } from '../../../lib/mindmovie/storyboard';
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL!;
+const TEST_SCENE_LIMIT = 4;
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,8 +37,9 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedStoryboard = normalizeStoryboard(movie.storyboard);
+    const renderStoryboard = normalizedStoryboard.slice(0, TEST_SCENE_LIMIT);
     const storyboardValidation = validateStoryboard(
-      normalizedStoryboard.map((scene: any) => ({
+      renderStoryboard.map((scene: any) => ({
         affirmation: scene.affirmation,
         duration: scene.duration,
         imagePrompt: scene.imagePrompt,
@@ -60,15 +62,15 @@ export async function POST(request: NextRequest) {
 
     try {
       // Prepare scenes for rendering
-      const scenes = normalizedStoryboard.map((scene: any) => ({
-        affirmation: scene.affirmation,
+      const scenes = renderStoryboard.map((scene: any, index: number) => ({
+        affirmation: movie.affirmations?.[index] || scene.affirmation,
         duration: scene.duration,
         backgroundColor: scene.backgroundColor,
         backgroundImageUrl: scene.imageUrl,
       }));
 
       // Render the video using FFmpeg
-      console.log(`Rendering ${scenes.length} scenes for mind movie ${id}...`);
+      console.log(`Rendering ${scenes.length}/${normalizedStoryboard.length} scenes for mind movie ${id} (test cap ${TEST_SCENE_LIMIT})...`);
       const videoBuffer = await renderVideo(scenes, {
         width: 1280,
         height: 720,
