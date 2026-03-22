@@ -54,7 +54,12 @@ export async function POST(request: NextRequest) {
         };
       });
 
-      const videoBuffer = await renderVideo(scenes, { width: 1280, height: 720, fps: 30, quality: 'medium', musicTrack: movie.musicTrack });
+      const scenesForRender = scenes.slice(0, 4);
+      if (scenes.length > scenesForRender.length) {
+        console.log(`Temporary test render cap enabled: rendering ${scenesForRender.length} of ${scenes.length} scenes.`);
+      }
+
+      const videoBuffer = await renderVideo(scenesForRender, { width: 1280, height: 720, fps: 30, quality: 'medium', musicTrack: movie.musicTrack });
       const fs = await import('fs/promises');
       const path = await import('path');
       const videoDir = path.join(process.cwd(), 'public', 'videos');
