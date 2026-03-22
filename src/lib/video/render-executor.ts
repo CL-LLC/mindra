@@ -507,17 +507,17 @@ async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string)
     }
 
     try {
-      const response: any = await (openaiClient as any).audio.speech.create({
-        model: OPENAI_TTS_MODEL,
-        voice: OPENAI_TTS_VOICE,
-        input: affirmation,
-        format: 'mp3',
+      const baseNarrationPath = await synthesizeAffirmationClip(tempDir, i, affirmation);
+      const clipDuration = await getMediaDurationSeconds(baseNarrationPath);
+      const repeatedNarrationPath = await buildRepeatedNarrationClip({
+        tempDir,
+        sceneIndex: i,
+        sourcePath: baseNarrationPath,
+        clipDuration,
+        sceneDuration: scene.duration,
       });
 
-      const narrationPath = path.join(tempDir, `narration-${i}.mp3`);
-      const buffer = Buffer.from(await response.arrayBuffer());
-      await fs.writeFile(narrationPath, buffer);
-      tracks.push({ path: narrationPath, start, duration: scene.duration });
+      tracks.push({ path: repeatedNarrationPath, start, duration: scene.duration });
     } catch (error) {
       console.warn(`Scene narration failed for scene ${i + 1}; continuing without it.`, error);
     }
@@ -526,4 +526,64 @@ async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string)
   }
 
   return tracks.length ? tracks : undefined;
+}
+
+async function synthesizeAffirmationClip(tempDir: string, sceneIndex: number, affirmation: string): Promise<string> {
+  const response: any = await (openaiClient as any).audio.speech.create({
+    model: OPENAI_TTS_MODEL,
+    voice: OPENAI_TTS_VOICE,
+    input: affirmation,
+    format: 'mp3',
+  });
+
+  const narrationPath = path.join(tempDir, `narration-${sceneIndex}.mp3`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  await fs.writeFile(narrationPath, buffer);
+  return narrationPath;
+}
+
+async function buildRepeatedNarrationClip(params: {
+  tempDir: string;
+  sceneIndex: number;
+  sourcePath: string;
+  clipDuration: number;
+  sceneDuration: number;
+}): Promise<string> {
+  const { tempDir, sceneIndex, sourcePath, clipDuration, sceneDuration } = params;
+  const endBufferSeconds = 0.35;
+  const maxPlayableDuration = Math.max(0, sceneDuration - endBufferSeconds);
+  const repeatCount = Math.max(1, Math.floor(maxPlayableDuration / clipDuration));
+
+  if (repeatCount === 1) return sourcePath;
+
+  const repeatedPath = path.join(tempDir, `narration-${sceneIndex}-repeat.mp3`);
+  const listPath = path.join(tempDir, `narration-${sceneIndex}-repeat.txt`);
+  const listContent = Array.from({ length: repeatCount }, () => `file '${sourcePath.replace(/'/g, "\\'")}'`).join('\n');
+  await fs.writeFile(listPath, listContent);
+
+  const cmd = [
+    'ffmpeg -y',
+    `-f concat -safe 0 -i ${shellQuote(listPath)}`,
+    '-c copy',
+    shellQuote(repeatedPath),
+  ].join(' ');
+
+  await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+  return repeatedPath;
+}
+
+async function getMediaDurationSeconds(filePath: string): Promise<number> {
+  const cmd = [
+    'ffprobe -v error',
+    `-show_entries format=duration`,
+    '-of default=noprint_wrappers=1:nokey=1',
+    shellQuote(filePath),
+  ].join(' ');
+
+  const { stdout } = await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+  const duration = Number.parseFloat(String(stdout).trim());
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(`Invalid media duration for ${filePath}`);
+  }
+  return duration;
 }
