@@ -88,6 +88,54 @@ function languageInstruction(language: string) {
     : 'Write every affirmation in natural English. Never translate to Spanish.';
 }
 
+export const refineCreateBrief = action({
+  args: {
+    intake: v.string(),
+    answers: v.array(v.string()),
+  },
+  returns: v.object({
+    brief: v.string(),
+    language: v.union(v.literal('en'), v.literal('es')),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
+      throw new Error("Unauthorized: Please sign in");
+    }
+
+    const intake = args.intake.trim();
+    const answers = args.answers.map((answer) => answer.trim()).filter(Boolean);
+    if (!intake) {
+      throw new Error("Add a short description of what you want to accomplish.");
+    }
+
+    const language = detectLanguage([intake, ...answers]) as 'en' | 'es';
+    const response = await getOpenAIClient().chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: `You are helping a user start a Mindra mind movie. ${languageInstruction(language)} Return valid JSON only.`,
+        },
+        {
+          role: "user",
+          content: `Intake: ${intake}\n${answers.length ? `Answers: ${answers.join("\n")}` : "Answers: none"}\n\nWrite one concise refined brief that combines the intake and answers.\n\nRules:\n- Keep it short: 1 to 3 sentences max\n- Preserve the user's language and tone\n- Capture the goal, context, and any constraints that matter\n- Do not add labels, bullets, or explanations\n\nReturn JSON in this exact shape:\n{ "brief": "..." }`,
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.4,
+    });
+
+    const content = response.choices[0].message.content;
+    if (!content) throw new Error("Failed to refine the intake.");
+
+    const parsed = JSON.parse(content);
+    const brief = normalizeText(String(parsed.brief || "")).slice(0, 600);
+    if (!brief) throw new Error("AI returned an empty brief. Try again or skip the clarity step.");
+    return { brief, language };
+  },
+});
+
 export const proposeCreateDraft = action({
   args: {
     input: v.string(),

@@ -25,12 +25,19 @@ export default function CreatePage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const createMindMovie = useMutation(api.mindMovies.create);
+  const refineCreateBrief = useAction(api.aiFunctions.refineCreateBrief);
   const proposeCreateDraft = useAction(api.aiFunctions.proposeCreateDraft);
   const generateAffirmations = useAction(api.aiFunctions.generateAffirmations);
   const generateStoryboard = useAction(api.aiFunctions.generateStoryboard);
 
-  const [mode, setMode] = useState<'intake' | 'review' | 'manual'>('intake');
+  const [mode, setMode] = useState<'intake' | 'clarity' | 'review' | 'manual'>('intake');
   const [intake, setIntake] = useState('');
+  const [clarityAnswers, setClarityAnswers] = useState(['', '', '']);
+  const [clarityQuestions] = useState([
+    'What matters most?',
+    'What is the main constraint?',
+    'What would success look like?'
+  ]);
   const [title, setTitle] = useState('');
   const [goalsText, setGoalsText] = useState('');
   const [draftLanguage, setDraftLanguage] = useState<'en' | 'es' | null>(null);
@@ -114,13 +121,25 @@ export default function CreatePage() {
     if (!intake.trim()) return setError('Tell me in one line what you want to accomplish.');
     setIsGeneratingDraft(true);
     try {
-      const draft = await proposeCreateDraft({ input: intake.trim() });
+      setMode('clarity');
+    } finally {
+      setIsGeneratingDraft(false);
+    }
+  };
+
+  const submitClarity = async () => {
+    setError(null);
+    setSuccess(null);
+    setIsGeneratingDraft(true);
+    try {
+      const refined = await refineCreateBrief({ intake: intake.trim(), answers: clarityAnswers });
+      const draft = await proposeCreateDraft({ input: refined.brief });
       setTitle(draft.title);
       setGoalsText(draft.goals.join('\n'));
       setDraftLanguage(draft.language);
       setMode('review');
     } catch (err: any) {
-      console.error('Draft generation failed:', err);
+      console.error('Clarity step failed:', err);
       setError(err?.message || 'AI draft failed. Use manual entry below.');
       setMode('manual');
     } finally {
@@ -149,14 +168,37 @@ export default function CreatePage() {
               <div>
                 <label className="block text-sm text-white/70 mb-2">What do you want to accomplish?</label>
                 <textarea value={intake} onChange={(e) => setIntake(e.target.value)} rows={5} placeholder="Example: I want to land a better role, feel confident in interviews, and rebuild my fitness routine." className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500" />
-                <p className="text-xs text-white/40 mt-2">One sentence is enough. You can edit everything on the next step.</p>
+                <p className="text-xs text-white/40 mt-2">One sentence is enough. You can skip the clarity step and jump straight to AI drafting.</p>
               </div>
               {error && <p className="text-red-400 text-sm">{error}</p>}
               <div className="flex flex-wrap gap-3">
-                <button type="submit" disabled={isGeneratingDraft} className="bg-primary-500 hover:bg-primary-600 disabled:bg-primary-800 disabled:cursor-not-allowed rounded-lg py-3 px-5 font-semibold flex items-center justify-center gap-2">{isGeneratingDraft ? <><Loader2 className="w-4 h-4 animate-spin" />Generating title + goals...</> : <><Wand2 className="w-4 h-4" />Generate title + goals</>}</button>
+                <button type="submit" disabled={isGeneratingDraft} className="bg-primary-500 hover:bg-primary-600 disabled:bg-primary-800 disabled:cursor-not-allowed rounded-lg py-3 px-5 font-semibold flex items-center justify-center gap-2">{isGeneratingDraft ? <><Loader2 className="w-4 h-4 animate-spin" />Opening clarity step...</> : <><Wand2 className="w-4 h-4" />Continue</>}</button>
                 <button type="button" onClick={() => setMode('manual')} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">Use manual entry instead</button>
               </div>
             </form>
+          )}
+
+          {mode === 'clarity' && (
+            <div className="space-y-5 bg-white/5 border border-white/10 rounded-xl p-6">
+              <div>
+                <h2 className="text-xl font-semibold mb-1">Quick clarity step</h2>
+                <p className="text-sm text-white/50">Answer up to 3 short questions, or skip this step and continue.</p>
+              </div>
+              <div className="space-y-4">
+                {clarityQuestions.map((question, index) => (
+                  <div key={question}>
+                    <label className="block text-sm text-white/70 mb-2">{question}</label>
+                    <input value={clarityAnswers[index]} onChange={(e) => setClarityAnswers((prev) => prev.map((item, i) => i === index ? e.target.value : item))} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500" placeholder="Short answer" />
+                  </div>
+                ))}
+              </div>
+              {error && <p className="text-red-400 text-sm">{error}</p>}
+              <div className="flex flex-wrap gap-3">
+                <button type="button" onClick={submitClarity} disabled={isGeneratingDraft} className="bg-primary-500 hover:bg-primary-600 disabled:bg-primary-800 disabled:cursor-not-allowed rounded-lg py-3 px-5 font-semibold flex items-center justify-center gap-2">{isGeneratingDraft ? <><Loader2 className="w-4 h-4 animate-spin" />Refining brief...</> : 'Submit clarity answers'}</button>
+                <button type="button" onClick={submitClarity} disabled={isGeneratingDraft} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">Skip clarity step</button>
+                <button type="button" onClick={() => setMode('intake')} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">Back</button>
+              </div>
+            </div>
           )}
 
           {mode === 'review' && (
