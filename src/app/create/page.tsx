@@ -21,6 +21,32 @@ function detectLanguage(texts: string[]) {
 const STEPS = ['Validating your inputs', 'Generating premium affirmations', 'Composing cinematic storyboard', 'Saving your mind movie'];
 const splitGoals = (text: string) => text.split('\n').map((g) => g.trim()).filter(Boolean);
 
+const QUESTION_BANK = {
+  en: [
+    () => 'What matters most in this?',
+    (input: string, answers: string[]) => (answers[0]?.toLowerCase().includes('job') || answers[0]?.toLowerCase().includes('career'))
+      ? 'What is the biggest obstacle right now?'
+      : 'What would make this feel like a real win?',
+    (input: string, answers: string[]) => (input.toLowerCase().includes('timing') || answers.join(' ').toLowerCase().includes('month'))
+      ? 'Is there a deadline or timeline I should honor?'
+      : 'Any detail you want the draft to keep front and center?'
+  ],
+  es: [
+    () => '¿Qué es lo más importante aquí?',
+    (input: string, answers: string[]) => (answers[0]?.toLowerCase().includes('trabajo') || answers[0]?.toLowerCase().includes('carrera'))
+      ? '¿Cuál es el obstáculo más grande ahora mismo?'
+      : '¿Qué haría que esto se sienta como un logro real?',
+    (input: string, answers: string[]) => (input.toLowerCase().includes('tiempo') || answers.join(' ').toLowerCase().includes('mes'))
+      ? '¿Hay una fecha o plazo que deba respetar?'
+      : '¿Hay algún detalle que deba mantener al frente?'
+  ]
+} as const;
+
+function makeQuestion(language: 'en' | 'es', intake: string, answers: string[], index: number) {
+  const fn = QUESTION_BANK[language][Math.min(index, QUESTION_BANK[language].length - 1)];
+  return fn(intake, answers);
+}
+
 export default function CreatePage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -32,12 +58,8 @@ export default function CreatePage() {
 
   const [mode, setMode] = useState<'intake' | 'clarity' | 'review' | 'manual'>('intake');
   const [intake, setIntake] = useState('');
-  const [clarityAnswers, setClarityAnswers] = useState(['', '', '']);
-  const [clarityQuestions] = useState([
-    'What matters most?',
-    'What is the main constraint?',
-    'What would success look like?'
-  ]);
+  const [clarityAnswers, setClarityAnswers] = useState<string[]>([]);
+  const [clarityLanguage, setClarityLanguage] = useState<'en' | 'es'>('en');
   const [title, setTitle] = useState('');
   const [goalsText, setGoalsText] = useState('');
   const [draftLanguage, setDraftLanguage] = useState<'en' | 'es' | null>(null);
@@ -48,13 +70,16 @@ export default function CreatePage() {
   const [success, setSuccess] = useState<string | null>(null);
 
   const goals = useMemo(() => splitGoals(goalsText), [goalsText]);
+  const qIndex = clarityAnswers.length;
+  const question = makeQuestion(clarityLanguage, intake, clarityAnswers, qIndex);
+  const currentAnswer = clarityAnswers[qIndex] ?? '';
 
   if (!authLoading && !isAuthenticated) {
     if (typeof window !== 'undefined') window.location.replace('/sign-in');
     return <div className="min-h-screen bg-slate-900" />;
   }
 
-  const runGeneration = async (nextTitle: string, nextGoals: string[]) => {
+  const runGeneration = async (nextTitle: string, nextGoals: string[], contextAnswers: string[] = clarityAnswers) => {
     const normalizedTitle = nextTitle.trim() || 'My Mind Movie';
     if (nextGoals.length === 0) throw new Error('Add at least one goal to continue.');
 
@@ -64,7 +89,7 @@ export default function CreatePage() {
 
     try {
       setStepIndex(0);
-      const language = detectLanguage([normalizedTitle, ...nextGoals]) as 'en' | 'es';
+      const language = detectLanguage([normalizedTitle, ...nextGoals, intake, ...contextAnswers]) as 'en' | 'es';
 
       setStepIndex(1);
       let affirmations = await generateAffirmations({ goals: nextGoals, language });
@@ -119,21 +144,18 @@ export default function CreatePage() {
     setError(null);
     setSuccess(null);
     if (!intake.trim()) return setError('Tell me in one line what you want to accomplish.');
-    setIsGeneratingDraft(true);
-    try {
-      setMode('clarity');
-    } finally {
-      setIsGeneratingDraft(false);
-    }
+    setClarityLanguage(detectLanguage([intake]));
+    setClarityAnswers([]);
+    setMode('clarity');
   };
 
-  const submitClarity = async () => {
+  const generateDraftFromContext = async (answers: string[]) => {
     setError(null);
     setSuccess(null);
     setIsGeneratingDraft(true);
     try {
-      const refined = await refineCreateBrief({ intake: intake.trim(), answers: clarityAnswers });
-      const draft = await proposeCreateDraft({ input: refined.brief });
+      const refined = await refineCreateBrief({ intake: intake.trim(), answers });
+      const draft = await proposeCreateDraft({ input: `${intake.trim()}\n${answers.filter(Boolean).join('\n')}\n${refined.brief}` });
       setTitle(draft.title);
       setGoalsText(draft.goals.join('\n'));
       setDraftLanguage(draft.language);
@@ -146,6 +168,37 @@ export default function CreatePage() {
       setIsGeneratingDraft(false);
     }
   };
+
+  const handleClarityContinue = async () => {
+    const nextAnswers = clarityAnswers.filter((answer) => answer.trim().length > 0);
+    if (nextAnswers.length < 2 && clarityAnswers.length < 4) {
+      setClarityAnswers((prev) => [...prev, '']);
+      return;
+    }
+    if (clarityAnswers.length < 4) {
+      setClarityAnswers((prev) => [...prev, '']);
+      return;
+    }
+    await generateDraftFromContext(nextAnswers);
+  };
+
+  const updateCurrentAnswer = (value: string) => {
+    setClarityAnswers((prev) => {
+      const next = [...prev];
+      next[qIndex] = value;
+      return next.slice(0, 4);
+    });
+  };
+
+  const skipCurrentQuestion = () => {
+    if (clarityAnswers.length >= 4) {
+      void generateDraftFromContext(clarityAnswers.filter((answer) => answer.trim()));
+      return;
+    }
+    setClarityAnswers((prev) => [...prev, '']);
+  };
+
+  const finishNow = () => void generateDraftFromContext(clarityAnswers.filter((answer) => answer.trim()));
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">
@@ -160,7 +213,7 @@ export default function CreatePage() {
         <section className="lg:col-span-2 space-y-6">
           <div>
             <h1 className="text-3xl font-bold mb-2">Create Your Mind Movie</h1>
-            <p className="text-white/60">Start with one line, let AI suggest the title and goals, then edit before you generate.</p>
+            <p className="text-white/60">Start with one line, then answer a few adaptive follow-ups or skip straight to the draft.</p>
           </div>
 
           {mode === 'intake' && (
@@ -168,11 +221,11 @@ export default function CreatePage() {
               <div>
                 <label className="block text-sm text-white/70 mb-2">What do you want to accomplish?</label>
                 <textarea value={intake} onChange={(e) => setIntake(e.target.value)} rows={5} placeholder="Example: I want to land a better role, feel confident in interviews, and rebuild my fitness routine." className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500" />
-                <p className="text-xs text-white/40 mt-2">One sentence is enough. You can skip the clarity step and jump straight to AI drafting.</p>
+                <p className="text-xs text-white/40 mt-2">One line is enough. You can skip the follow-ups and generate now.</p>
               </div>
               {error && <p className="text-red-400 text-sm">{error}</p>}
               <div className="flex flex-wrap gap-3">
-                <button type="submit" disabled={isGeneratingDraft} className="bg-primary-500 hover:bg-primary-600 disabled:bg-primary-800 disabled:cursor-not-allowed rounded-lg py-3 px-5 font-semibold flex items-center justify-center gap-2">{isGeneratingDraft ? <><Loader2 className="w-4 h-4 animate-spin" />Opening clarity step...</> : <><Wand2 className="w-4 h-4" />Continue</>}</button>
+                <button type="submit" className="bg-primary-500 hover:bg-primary-600 rounded-lg py-3 px-5 font-semibold flex items-center gap-2"><Wand2 className="w-4 h-4" />Continue</button>
                 <button type="button" onClick={() => setMode('manual')} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">Use manual entry instead</button>
               </div>
             </form>
@@ -182,90 +235,46 @@ export default function CreatePage() {
             <div className="space-y-5 bg-white/5 border border-white/10 rounded-xl p-6">
               <div>
                 <h2 className="text-xl font-semibold mb-1">Quick clarity step</h2>
-                <p className="text-sm text-white/50">Answer up to 3 short questions, or skip this step and continue.</p>
+                <p className="text-sm text-white/50">Answer up to 4 short questions. Skip any question or generate now.</p>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-black/20 p-4 space-y-2 text-sm">
+                <div className="text-white/40 uppercase tracking-wide text-[11px]">You said</div>
+                <div className="whitespace-pre-wrap text-white/80">{intake}</div>
               </div>
               <div className="space-y-4">
-                {clarityQuestions.map((question, index) => (
-                  <div key={question}>
-                    <label className="block text-sm text-white/70 mb-2">{question}</label>
-                    <input value={clarityAnswers[index]} onChange={(e) => setClarityAnswers((prev) => prev.map((item, i) => i === index ? e.target.value : item))} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500" placeholder="Short answer" />
-                  </div>
-                ))}
+                <div>
+                  <div className="text-xs text-white/40 mb-1">Follow-up {Math.min(qIndex + 1, 4)} of 4</div>
+                  <label className="block text-sm text-white/70 mb-2">{question}</label>
+                  <input value={currentAnswer} onChange={(e) => updateCurrentAnswer(e.target.value)} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500" placeholder="Short answer" />
+                </div>
               </div>
               {error && <p className="text-red-400 text-sm">{error}</p>}
               <div className="flex flex-wrap gap-3">
-                <button type="button" onClick={submitClarity} disabled={isGeneratingDraft} className="bg-primary-500 hover:bg-primary-600 disabled:bg-primary-800 disabled:cursor-not-allowed rounded-lg py-3 px-5 font-semibold flex items-center justify-center gap-2">{isGeneratingDraft ? <><Loader2 className="w-4 h-4 animate-spin" />Refining brief...</> : 'Submit clarity answers'}</button>
-                <button type="button" onClick={submitClarity} disabled={isGeneratingDraft} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">Skip clarity step</button>
-                <button type="button" onClick={() => setMode('intake')} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">Back</button>
+                <button type="button" onClick={handleClarityContinue} disabled={isGeneratingDraft} className="bg-primary-500 hover:bg-primary-600 disabled:opacity-60 rounded-lg py-3 px-5 font-semibold">{qIndex < 3 ? 'Next question' : 'Generate draft'}</button>
+                <button type="button" onClick={skipCurrentQuestion} disabled={isGeneratingDraft} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">Skip</button>
+                <button type="button" onClick={() => void generateDraftFromContext(clarityAnswers.map((a) => a.trim()).filter(Boolean))} disabled={isGeneratingDraft} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">Generate now</button>
               </div>
             </div>
           )}
 
-          {mode === 'review' && (
+          {(mode === 'review' || mode === 'manual') && (
             <div className="space-y-5 bg-white/5 border border-white/10 rounded-xl p-6">
-              <div><h2 className="text-xl font-semibold mb-1">Review your draft</h2><p className="text-sm text-white/50">AI suggested this in {draftLanguage === 'es' ? 'Spanish' : 'English'}. Edit anything before continuing.</p></div>
-              <div><label className="block text-sm text-white/70 mb-2">Title</label><input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary-500" /></div>
-              <div><label className="block text-sm text-white/70 mb-2">Goals</label><textarea value={goalsText} onChange={(e) => setGoalsText(e.target.value)} rows={8} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary-500" /><p className="text-xs text-white/40 mt-2">Add or remove lines as needed. One goal per line.</p></div>
-              {error && <p className="text-red-400 text-sm">{error}</p>}
+              <div><h2 className="text-xl font-semibold mb-1">Review your draft</h2><p className="text-sm text-white/50">Tweak the title or goals, then ship it.</p></div>
               {success && <p className="text-green-400 text-sm">{success}</p>}
+              {error && <p className="text-red-400 text-sm">{error}</p>}
+              <div><label className="block text-sm text-white/70 mb-2">Title</label><input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary-500" /></div>
+              <div><label className="block text-sm text-white/70 mb-2">Goals</label><textarea value={goalsText} onChange={(e) => setGoalsText(e.target.value)} rows={6} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary-500" /></div>
               <div className="flex flex-wrap gap-3">
-                <button type="button" onClick={() => { setMode('intake'); setError(null); setSuccess(null); setTitle(''); setGoalsText(''); setDraftLanguage(null); }} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">Back</button>
-                <button type="button" onClick={async () => {
-                  const updatedGoals = splitGoals(goalsText);
-                  if (!updatedGoals.length) { setError('Add at least one goal before approving.'); return; }
-                  await runGeneration(title, updatedGoals);
-                }} disabled={isSubmitting} className="bg-primary-500 hover:bg-primary-600 disabled:bg-primary-800 disabled:cursor-not-allowed rounded-lg py-3 px-5 font-semibold flex items-center justify-center gap-2">{isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" />Building...</> : 'Approve and continue'}</button>
-                <button type="button" onClick={async () => {
-                  setIsGeneratingDraft(true);
-                  setError(null);
-                  try {
-                    const draft = await proposeCreateDraft({ input: intake.trim() || `${title}\n${goalsText}` });
-                    setTitle(draft.title);
-                    setGoalsText(draft.goals.join('\n'));
-                    setDraftLanguage(draft.language);
-                  } catch (err: any) {
-                    setError(err?.message || 'Regeneration failed. Switch to manual mode if needed.');
-                  } finally {
-                    setIsGeneratingDraft(false);
-                  }
-                }} disabled={isGeneratingDraft} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30 flex items-center gap-2">{isGeneratingDraft ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Regenerate'}</button>
+                <button type="button" onClick={() => void runGeneration(title, goals)} disabled={isSubmitting || goals.length === 0} className="bg-primary-500 hover:bg-primary-600 disabled:opacity-60 rounded-lg py-3 px-5 font-semibold flex items-center gap-2">{isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}Create mind movie</button>
+                <button type="button" onClick={() => setMode('clarity')} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">Back to clarity</button>
               </div>
             </div>
-          )}
-
-          {mode === 'manual' && (
-            <form onSubmit={(e) => { e.preventDefault(); runGeneration(title, goals); }} className="space-y-5 bg-white/5 border border-white/10 rounded-xl p-6">
-              <div>
-                <h2 className="text-xl font-semibold mb-1">Manual entry</h2>
-                <p className="text-sm text-white/50">Fallback and advanced path. The existing generation pipeline stays the same.</p>
-              </div>
-              <div><label className="block text-sm text-white/70 mb-2">Title</label><input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary-500" /></div>
-              <div><label className="block text-sm text-white/70 mb-2">Goals</label><textarea value={goalsText} onChange={(e) => setGoalsText(e.target.value)} rows={8} placeholder={'Goal one\nGoal two\nGoal three'} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary-500" /></div>
-              {error && <p className="text-red-400 text-sm">{error}</p>}
-              <div className="flex flex-wrap gap-3">
-                <button type="submit" disabled={isSubmitting} className="bg-primary-500 hover:bg-primary-600 disabled:bg-primary-800 disabled:cursor-not-allowed rounded-lg py-3 px-5 font-semibold flex items-center justify-center gap-2">{isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" />Building...</> : 'Generate Mind Movie'}</button>
-                <button type="button" onClick={() => setMode('intake')} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">Back to intake</button>
-              </div>
-            </form>
           )}
         </section>
 
-        <aside className="bg-white/5 border border-white/10 rounded-xl p-5 h-fit space-y-3">
-          <h2 className="font-semibold mb-3">Generation Progress</h2>
-          <p className="text-xs text-white/50">Language lock: preserves Spanish when the input is Spanish.</p>
-          <p className="text-xs text-white/50">Scene cap and render/audio pipeline remain unchanged downstream.</p>
-          <ul className="space-y-3">
-            {STEPS.map((step, i) => {
-              const done = stepIndex > i;
-              const active = stepIndex === i;
-              return (
-                <li key={step} className="flex items-center gap-2 text-sm">
-                  {done ? <CheckCircle2 className="w-4 h-4 text-green-400" /> : active ? <Loader2 className="w-4 h-4 text-primary-400 animate-spin" /> : <span className="w-4 h-4 rounded-full border border-white/20" />}
-                  <span className={done || active ? 'text-white' : 'text-white/50'}>{step}</span>
-                </li>
-              );
-            })}
-          </ul>
+        <aside className="space-y-4">
+          <div className="bg-white/5 border border-white/10 rounded-xl p-5"><h3 className="font-semibold mb-3">Progress</h3><ul className="space-y-2">{STEPS.map((step, i) => { const done = i < stepIndex; const active = i === stepIndex; return <li key={step} className="flex items-center gap-2 text-sm">{done ? <CheckCircle2 className="w-4 h-4 text-green-400" /> : active ? <Loader2 className="w-4 h-4 text-primary-400 animate-spin" /> : <span className="w-4 h-4 rounded-full border border-white/20" />}<span className={done || active ? 'text-white' : 'text-white/50'}>{step}</span></li>; })}</ul></div>
+          <div className="bg-white/5 border border-white/10 rounded-xl p-5"><h3 className="font-semibold mb-3">Notes</h3><p className="text-sm text-white/60">Adaptive follow-ups stop after a few questions. The original intake is preserved, and the draft still flows through the same AI and creation pipeline.</p></div>
         </aside>
       </main>
     </div>
