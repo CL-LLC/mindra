@@ -14,6 +14,20 @@ export interface StoryboardScene {
   };
 }
 
+// Affirmation Manifest Types - for playback-layer overlay
+export interface AffirmationScene {
+  affirmation: string;
+  startTime: number;
+  endTime: number;
+  position: 'center' | 'top' | 'bottom';
+}
+
+export interface AffirmationManifest {
+  version: 1;
+  scenes: AffirmationScene[];
+  totalDuration: number;
+}
+
 export interface VideoConfig {
   width: number;
   height: number;
@@ -149,6 +163,118 @@ export function generateEditlyConfig(
  */
 export function calculateDuration(scenes: StoryboardScene[]): number {
   return scenes.reduce((total, scene) => total + scene.duration, 0);
+}
+
+/**
+ * Generate Editly configuration for BASE render (no text overlay)
+ * This creates a reusable video that can have affirmations changed without re-render
+ */
+export function generateBaseEditlyConfig(
+  scenes: StoryboardScene[],
+  config: VideoConfig = DEFAULT_CONFIG,
+  musicTrack?: string
+) {
+  const editlyConfig = {
+    width: config.width,
+    height: config.height,
+    fps: config.fps,
+    outPath: '',
+
+    clips: scenes.map((scene) => ({
+      duration: scene.duration,
+
+      layers: [
+        // Image/video layer only - no text
+        ...(scene.imageUrl ? [{
+          type: 'image' as const,
+          path: scene.imageUrl,
+          ...(scene.transition === 'zoom' && { zoom: [1, 1.2] }),
+          ...(scene.transition === 'pan' && { position: ['left', 'right'] }),
+        }] : [{
+          type: 'fill-color' as const,
+          color: '#0f172a',
+        }]),
+
+        // Ken Burns effect (subtle zoom for visual interest)
+        {
+          type: 'detached' as const,
+          duration: scene.duration,
+          layers: [{
+            type: 'radial-gradient' as const,
+            colors: ['#8b5cf6', '#6366f1'],
+            center: [0.5, 0.5],
+          }],
+          originX: 0.5,
+          originY: 0.5,
+          zoom: [1, 1.05],
+          opacity: 0.1,
+        },
+      ],
+
+      transition: {
+        duration: 0.5,
+        name: scene.transition === 'dissolve' ? 'fade' : scene.transition,
+      },
+    })),
+
+    ...(musicTrack ? [{
+      audio: {
+        path: musicTrack,
+        mixVolume: 0.3,
+        fadeIn: 1,
+        fadeOut: 2,
+      },
+    }] : []),
+  };
+
+  return editlyConfig;
+}
+
+/**
+ * Generate affirmation manifest from storyboard
+ * This contains timing data for playback-layer overlay
+ */
+export function generateAffirmationManifest(scenes: StoryboardScene[]): AffirmationManifest {
+  let currentTime = 0;
+  const manifestScenes: AffirmationScene[] = scenes.map((scene) => {
+    const affirmationScene: AffirmationScene = {
+      affirmation: scene.affirmation,
+      startTime: currentTime,
+      endTime: currentTime + scene.duration,
+      position: scene.textOverlay?.position ?? 'center',
+    };
+    currentTime += scene.duration;
+    return affirmationScene;
+  });
+
+  return {
+    version: 1,
+    scenes: manifestScenes,
+    totalDuration: currentTime,
+  };
+}
+
+/**
+ * Update affirmation manifest with new affirmations
+ * This allows changing text without re-rendering video
+ */
+export function updateAffirmationManifest(
+  existingManifest: AffirmationManifest,
+  newAffirmations: string[]
+): AffirmationManifest {
+  if (newAffirmations.length !== existingManifest.scenes.length) {
+    throw new Error(
+      `Affirmation count mismatch: got ${newAffirmations.length}, expected ${existingManifest.scenes.length}`
+    );
+  }
+
+  return {
+    ...existingManifest,
+    scenes: existingManifest.scenes.map((scene, index) => ({
+      ...scene,
+      affirmation: newAffirmations[index] ?? scene.affirmation,
+    })),
+  };
 }
 
 /**

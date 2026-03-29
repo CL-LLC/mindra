@@ -7,6 +7,27 @@ import { useConvexAuth, useMutation, useQuery } from 'convex/react';
 import { Sparkles, Plus, Play, Clock, Eye, Pencil, Archive, ArchiveRestore, X } from 'lucide-react';
 import { api } from '../../../convex/_generated/api';
 import { useLanguage } from '@/lib/hooks';
+import { MindMoviePlayer } from '@/components';
+
+// Type for mind movie with optional affirmation manifest
+interface MindMovie {
+  _id: string;
+  title: string;
+  goals: string[];
+  affirmations: string[];
+  duration: number;
+  videoUrl?: string;
+  affirmationManifest?: {
+    version: 1;
+    scenes: Array<{
+      affirmation: string;
+      startTime: number;
+      endTime: number;
+      position: 'center' | 'top' | 'bottom';
+    }>;
+    totalDuration: number;
+  } | null;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -21,6 +42,7 @@ export default function DashboardPage() {
 
   const [showCreatedBanner, setShowCreatedBanner] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [playingMovie, setPlayingMovie] = useState<MindMovie | null>(null);
 
   useEffect(() => {
     if (searchParams.get('created')) {
@@ -157,13 +179,13 @@ export default function DashboardPage() {
                       {t('dashboard.view')}
                     </Link>
                     {movie.videoUrl && (
-                      <Link
-                        href={`/mind-movies/${movie._id}/watch`}
+                      <button
+                        onClick={() => setPlayingMovie(movie as MindMovie)}
                         className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded-lg transition-colors"
                       >
                         <Play className="w-3 h-3" />
                         {t('dashboard.watch')}
-                      </Link>
+                      </button>
                     )}
                     <button
                       onClick={() => setArchived(movie._id, 'archived')}
@@ -236,6 +258,21 @@ export default function DashboardPage() {
           </div>
         )}
       </main>
+
+      {/* Video Player Modal */}
+      {playingMovie && playingMovie.videoUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-4xl">
+            <MindMoviePlayer
+              videoUrl={playingMovie.videoUrl}
+              manifest={playingMovie.affirmationManifest}
+              autoPlay
+              showCloseButton
+              onClose={() => setPlayingMovie(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
