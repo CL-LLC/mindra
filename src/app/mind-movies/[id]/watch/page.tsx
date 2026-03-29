@@ -128,6 +128,8 @@ export default function WatchPage() {
             <MindMoviePlayer
               videoUrl={movie.videoUrl ?? ''}
               manifest={movie.affirmationManifest}
+              affirmations={movie.affirmations}
+              duration={movie.duration}
               onComplete={handleVideoComplete}
             />
           ) : (

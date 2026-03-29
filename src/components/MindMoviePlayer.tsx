@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Play, Pause, Volume2, VolumeX, Maximize, Loader2, X } from 'lucide-react';
 import type { AffirmationManifest } from '@/lib/video/renderer';
+import { generatePairPlaybackManifest, type PairPlaybackManifest } from '@/lib/video/pair-playback';
 
 interface MindMoviePlayerProps {
   videoUrl: string;
   manifest?: AffirmationManifest | null;
+  affirmations?: string[]; // Full list of affirmations for pair-playback
+  duration?: number; // Video duration for pair-playback timing
   autoPlay?: boolean;
   onComplete?: () => void;
   onClose?: () => void;
@@ -16,6 +19,8 @@ interface MindMoviePlayerProps {
 export function MindMoviePlayer({
   videoUrl,
   manifest,
+  affirmations,
+  duration: propDuration,
   autoPlay = false,
   onComplete,
   onClose,
@@ -27,26 +32,44 @@ export function MindMoviePlayer({
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [currentAffirmation, setCurrentAffirmation] = useState<string | null>(null);
-  const [affirmationPosition, setAffirmationPosition] = useState<'center' | 'top' | 'bottom'>('center');
+  
+  // Generate pair-playback manifest if affirmations provided
+  const pairPlaybackManifest = useMemo<PairPlaybackManifest | null>(() => {
+    const totalDuration = propDuration || videoDuration;
+    if (affirmations && affirmations.length > 0 && totalDuration > 0) {
+      return generatePairPlaybackManifest(affirmations, totalDuration);
+    }
+    return null;
+  }, [affirmations, propDuration, videoDuration]);
 
   // Reset state when video changes
   useEffect(() => {
     completionFiredRef.current = false;
     setCurrentTime(0);
-    setDuration(0);
+    setVideoDuration(0);
     setIsPlaying(false);
     setIsLoading(true);
     setCurrentAffirmation(null);
-    setAffirmationPosition('center');
   }, [videoUrl]);
 
   // Find current affirmation based on playback time
+  // Priority: pair-playback manifest > legacy manifest
   const updateCurrentAffirmation = useCallback((time: number) => {
+    // Use pair-playback manifest if available
+    if (pairPlaybackManifest?.scenes) {
+      const scene = pairPlaybackManifest.scenes.find(
+        (s) => time >= s.startTime && time < s.endTime
+      );
+      setCurrentAffirmation(scene?.affirmation ?? null);
+      return;
+    }
+    
+    // Fallback to legacy manifest for backwards compatibility
     if (!manifest?.scenes) {
       setCurrentAffirmation(null);
       return;
@@ -58,11 +81,10 @@ export function MindMoviePlayer({
 
     if (scene) {
       setCurrentAffirmation(scene.affirmation);
-      setAffirmationPosition(scene.position);
     } else {
       setCurrentAffirmation(null);
     }
-  }, [manifest]);
+  }, [manifest, pairPlaybackManifest]);
 
   // Video event handlers
   useEffect(() => {
@@ -70,7 +92,7 @@ export function MindMoviePlayer({
     if (!video || !videoUrl) return;
 
     const handleLoadedMetadata = () => {
-      setDuration(Number.isFinite(video.duration) ? video.duration : 0);
+      setVideoDuration(Number.isFinite(video.duration) ? video.duration : 0);
       setIsLoading(false);
     };
 
@@ -187,13 +209,6 @@ export function MindMoviePlayer({
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // Position classes for affirmation overlay
-  const positionClasses = {
-    center: 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center',
-    top: 'top-8 left-1/2 -translate-x-1/2 text-center',
-    bottom: 'bottom-24 left-1/2 -translate-x-1/2 text-center', // Above controls
-  };
-
   return (
     <div
       ref={containerRef}
@@ -216,10 +231,10 @@ export function MindMoviePlayer({
           preload="metadata"
         />
 
-        {/* Affirmation overlay */}
+        {/* Affirmation overlay - bottom subtitle-style for pair-playback */}
         {currentAffirmation && isPlaying && (
           <div
-            className={`absolute ${positionClasses[affirmationPosition]} z-20 pointer-events-none`}
+            className="absolute bottom-24 left-1/2 -translate-x-1/2 text-center z-20 pointer-events-none"
           >
             <div className="bg-black/70 backdrop-blur-sm px-6 py-3 rounded-lg max-w-[85%]">
               <p className="text-white text-lg md:text-xl font-medium leading-relaxed text-shadow-lg overflow-hidden max-h-[4.5em]" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
@@ -246,15 +261,15 @@ export function MindMoviePlayer({
           <input
             type="range"
             min="0"
-            max={duration || 100}
+            max={videoDuration || 100}
             value={currentTime}
             onChange={handleSeek}
             className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-            disabled={!duration}
+            disabled={!videoDuration}
           />
           <div className="flex justify-between text-xs text-slate-400 mt-1">
             <span>{formatTime(currentTime)}</span>
-            <span>{formatTime(duration)}</span>
+            <span>{formatTime(videoDuration)}</span>
           </div>
         </div>
 
