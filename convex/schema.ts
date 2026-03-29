@@ -22,6 +22,7 @@ export default defineSchema({
     isAnonymous: v.optional(v.boolean()),
     imageUrl: v.optional(v.string()),
     timezone: v.optional(v.string()),
+    preferredLanguage: v.optional(v.union(v.literal("en"), v.literal("es"))),
     subscription: v.optional(v.union(v.literal("free"), v.literal("pro"), v.literal("ultra"))),
     xp: v.optional(v.number()),
     level: v.optional(v.number()),

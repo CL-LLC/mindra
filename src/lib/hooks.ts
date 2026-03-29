@@ -5,6 +5,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useEffect, useState } from "react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
+import { useLanguage } from "./i18n/context";
 
 export function useConvexUser() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -58,3 +59,6 @@ export function useAuth() {
   const { isAuthenticated, isLoading } = useConvexAuth();
   return { signIn, signOut, isAuthenticated, isLoading };
 }
+
+// Re-export i18n hook for convenience
+export { useLanguage } from "./i18n/context";
