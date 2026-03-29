@@ -7,6 +7,11 @@ import os from 'os';
 import OpenAI from 'openai';
 import { getMusicAsset, resolveMusicAssetPath } from './music-registry';
 import { selectAffirmationPair } from './pair-playback';
+import {
+  getKaleidoscopeConfig,
+  resolveKaleidoscopeAssetPath,
+  KaleidoscopeConfig,
+} from './kaleidoscope-registry';
 
 const execAsync = promisify(exec);
 const PYTHON = process.env.PYTHON || 'python3';
@@ -35,9 +40,11 @@ export interface RenderOptions {
   fps?: number;
   quality?: 'low' | 'medium' | 'high';
   musicTrack?: string;
+  /** Kaleidoscope intro/outro configuration (optional, defaults to enabled) */
+  kaleidoscope?: Partial<KaleidoscopeConfig>;
 }
 
-const DEFAULT_OPTIONS: Required<Omit<RenderOptions, 'musicTrack'>> = {
+const DEFAULT_OPTIONS: Required<Omit<RenderOptions, 'musicTrack' | 'kaleidoscope'>> = {
   width: 1280,
   height: 720,
   fps: 30,
@@ -50,12 +57,37 @@ export async function renderVideo(
 ): Promise<Buffer> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mindra-render-'));
+  const kaleidoscopeConfig = getKaleidoscopeConfig(options.kaleidoscope);
   const musicAsset = getMusicAsset(opts.musicTrack, scenes.length);
   const musicPath = (await resolveMusicAssetPath(musicAsset)) || (await ensureFallbackMusicAsset(tempDir, musicAsset, scenes.length));
   const narrationTracks = await buildSceneNarrationTracks(scenes, tempDir);
 
   try {
     const sceneFiles: string[] = [];
+    let introFile: string | undefined;
+    let outroFile: string | undefined;
+
+    // Prepare kaleidoscope intro/outro clips if enabled
+    if (kaleidoscopeConfig.enabled) {
+      introFile = await ensureKaleidoscopeClip({
+        type: 'intro',
+        config: kaleidoscopeConfig,
+        tempDir,
+        width: opts.width,
+        height: opts.height,
+        fps: opts.fps,
+        quality: opts.quality,
+      });
+      outroFile = await ensureKaleidoscopeClip({
+        type: 'outro',
+        config: kaleidoscopeConfig,
+        tempDir,
+        width: opts.width,
+        height: opts.height,
+        fps: opts.fps,
+        quality: opts.quality,
+      });
+    }
 
     for (let i = 0; i < scenes.length; i++) {
       const scene = scenes[i];
@@ -98,8 +130,14 @@ export async function renderVideo(
       sceneFiles.push(sceneFile);
     }
 
+    // Build concat list with intro/outro
+    const concatParts: string[] = [];
+    if (introFile) concatParts.push(introFile);
+    concatParts.push(...sceneFiles);
+    if (outroFile) concatParts.push(outroFile);
+
     const concatFile = path.join(tempDir, 'concat.txt');
-    const concatContent = sceneFiles.map(f => `file '${f}'`).join('\n');
+    const concatContent = concatParts.map(f => `file '${f}'`).join('\n');
     await fs.writeFile(concatFile, concatContent);
 
     const outputFile = path.join(tempDir, 'output-no-audio.mp4');
@@ -113,8 +151,13 @@ export async function renderVideo(
     console.log('Concatenating scenes...');
     await execAsync(concatCmd, { maxBuffer: 20 * 1024 * 1024 });
 
-    const totalDuration = scenes.reduce((sum, scene) => sum + scene.duration, 0);
-    const finalVideoFile = await mixOptionalAudio({ outputFile, tempDir, narrationTracks, musicPath, musicAsset, totalDuration });
+    // Calculate total duration including intro/outro
+    const mainDuration = scenes.reduce((sum, scene) => sum + scene.duration, 0);
+    const introDuration = introFile ? kaleidoscopeConfig.introDuration : 0;
+    const outroDuration = outroFile ? kaleidoscopeConfig.outroDuration : 0;
+    const totalDuration = introDuration + mainDuration + outroDuration;
+    
+    const finalVideoFile = await mixOptionalAudio({ outputFile, tempDir, narrationTracks, musicPath, musicAsset, totalDuration, introDuration, mainDuration });
 
     const videoBuffer = await fs.readFile(finalVideoFile);
     console.log(`Render complete: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`);
@@ -131,6 +174,88 @@ export async function renderVideo(
 function getRandomGradientColor(): string {
   const colors = ['#1e1b4b', '#312e81', '#3730a3', '#4c1d95', '#5b21b6', '#6d28d9', '#7c3aed'];
   return colors[Math.floor(Math.random() * colors.length)];
+}
+
+/**
+ * Ensure kaleidoscope intro/outro clip is available
+ * Uses stock asset if available, otherwise generates a synthetic kaleidoscope video
+ */
+async function ensureKaleidoscopeClip(params: {
+  type: 'intro' | 'outro';
+  config: KaleidoscopeConfig;
+  tempDir: string;
+  width: number;
+  height: number;
+  fps: number;
+  quality: 'low' | 'medium' | 'high';
+}): Promise<string | undefined> {
+  const { type, config, tempDir, width, height, fps, quality } = params;
+  const asset = type === 'intro' ? config.intro : config.outro;
+  const duration = type === 'intro' ? config.introDuration : config.outroDuration;
+
+  // Try to use stock asset first
+  const stockPath = await resolveKaleidoscopeAssetPath(asset);
+  if (stockPath) {
+    console.log(`Using stock kaleidoscope ${type}: ${stockPath}`);
+    // Re-encode to match output specs and trim/pad to exact duration
+    const outputClip = path.join(tempDir, `kaleidoscope-${type}.mp4`);
+    const cmd = [
+      'ffmpeg -y',
+      `-i ${shellQuote(stockPath)}`,
+      `-t ${duration}`,
+      `-vf scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`,
+      `-r ${fps}`,
+      `-c:v libx264 -preset ${quality === 'high' ? 'slow' : quality === 'low' ? 'ultrafast' : 'medium'}`,
+      '-an', // No audio - music bed continues from main content
+      '-pix_fmt yuv420p',
+      shellQuote(outputClip),
+    ].join(' ');
+    await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
+    return outputClip;
+  }
+
+  // Fallback: generate synthetic kaleidoscope-style video
+  console.log(`Generating synthetic kaleidoscope ${type} (${duration}s)...`);
+  return generateSyntheticKaleidoscopeClip({ type, duration, tempDir, width, height, fps, quality });
+}
+
+/**
+ * Generate a synthetic kaleidoscope-style video using FFmpeg
+ * Creates a colorful geometric pattern that morphs over time
+ */
+async function generateSyntheticKaleidoscopeClip(params: {
+  type: 'intro' | 'outro';
+  duration: number;
+  tempDir: string;
+  width: number;
+  height: number;
+  fps: number;
+  quality: 'low' | 'medium' | 'high';
+}): Promise<string> {
+  const { type, duration, tempDir, width, height, fps, quality } = params;
+  const outputClip = path.join(tempDir, `kaleidoscope-${type}.mp4`);
+
+  // Create a synthetic kaleidoscope-style pattern using FFmpeg's geq filter
+  // This generates a colorful, shifting geometric pattern
+  const kaleidoscopeFilter = `geq=
+r='128+100*sin(PI*2*t/6+X/40+Y/40)+50*cos(PI*2*t/4-X/30)':
+g='128+100*cos(PI*2*t/5+X/35+Y/45)+50*sin(PI*2*t/7-Y/35)':
+b='128+80*sin(PI*2*t/8+X/50-Y/30)+40*cos(PI*2*t/6+X/45+Y/35)'`.replace(/\n/g, '');
+
+  const cmd = [
+    'ffmpeg -y',
+    `-f lavfi -i color=c=0x1e1b4b:s=${width}x${height}:d=${duration}:r=${fps}`,
+    `-vf "${kaleidoscopeFilter}"`,
+    `-t ${duration}`,
+    `-c:v libx264 -preset ${quality === 'high' ? 'slow' : quality === 'low' ? 'ultrafast' : 'medium'}`,
+    '-an', // No audio - music bed continues from main content
+    '-pix_fmt yuv420p',
+    shellQuote(outputClip),
+  ].join(' ');
+
+  console.log(`Generating synthetic kaleidoscope ${type}...`);
+  await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
+  return outputClip;
 }
 
 async function renderSceneFrame(
@@ -444,8 +569,10 @@ async function mixOptionalAudio(params: {
   musicPath?: string;
   musicAsset: { volume: number; fadeIn: number; fadeOut: number; trackId: string };
   totalDuration: number;
+  introDuration?: number;
+  mainDuration?: number;
 }): Promise<string> {
-  const { outputFile, tempDir, narrationTracks = [], musicPath, musicAsset, totalDuration } = params;
+  const { outputFile, tempDir, narrationTracks = [], musicPath, musicAsset, totalDuration, introDuration = 0, mainDuration = totalDuration } = params;
   if (!narrationTracks.length && !musicPath) return outputFile;
 
   const finalVideoFile = path.join(tempDir, 'output-final.mp4');
@@ -465,9 +592,11 @@ async function mixOptionalAudio(params: {
     const inputIndex = narrationInputOffset + index;
     const usableDuration = track.repeat && track.clipDuration > 0
       ? Math.max(track.clipDuration, Math.floor(track.duration / track.clipDuration) * track.clipDuration)
-      : Math.min(track.duration, totalDuration);
+      : Math.min(track.duration, mainDuration);
     const voiceGain = track.repeat ? 2.6 : 2.1;
-    filters.push(`[${inputIndex}:a]atrim=0:${usableDuration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${voiceGain},alimiter=limit=0.92,adelay=${Math.round(track.start * 1000)}|${Math.round(track.start * 1000)}[${label}]`);
+    // Offset narration start by introDuration so it plays during the main content, not the intro
+    const adjustedStart = Math.round((introDuration + track.start) * 1000);
+    filters.push(`[${inputIndex}:a]atrim=0:${usableDuration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${voiceGain},alimiter=limit=0.92,adelay=${adjustedStart}|${adjustedStart}[${label}]`);
     audioMixInputs.push(`[${label}]`);
   });
 
