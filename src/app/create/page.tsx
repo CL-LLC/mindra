@@ -7,7 +7,8 @@ import Link from 'next/link';
 import { ArrowLeft, CheckCircle2, Loader2, Sparkles, Wand2, Plus, X, RefreshCw } from 'lucide-react';
 import { api } from '../../../convex/_generated/api';
 import { buildDeterministicScaffold } from '@/lib/mindmovie/scaffold';
-import { normalizeStoryboard } from '@/lib/mindmovie/storyboard';
+import { normalizeStoryboard, toManifestFormat } from '@/lib/mindmovie/storyboard';
+import { generateAffirmationManifestFromNormalized } from '@/lib/video/renderer';
 import { useLanguage } from '@/lib/hooks';
 import { Language } from '@/lib/i18n/dictionary';
 
@@ -105,7 +106,21 @@ export default function CreatePage() {
       }
 
       setStepIndex(3);
-      const movieId = await createMindMovie({ title: normalizedTitle, language, goals: nextGoals, affirmations, storyboard, assets, duration: duration || storyboard.length * 10, musicTrack });
+      
+      // Generate affirmation manifest for playback-layer overlay
+      const affirmationManifest = generateAffirmationManifestFromNormalized(toManifestFormat(storyboard));
+      
+      const movieId = await createMindMovie({ 
+        title: normalizedTitle, 
+        language, 
+        goals: nextGoals, 
+        affirmations, 
+        storyboard, 
+        assets, 
+        duration: duration || storyboard.length * 10, 
+        musicTrack,
+        affirmationManifest // Pass manifest for playback-layer overlay
+      });
       setSuccess(t('create.success.ready'));
       setStepIndex(STEPS.length);
       setTimeout(() => router.push(`/mind-movies/${movieId}?created=1`), 800);

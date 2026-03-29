@@ -255,6 +255,38 @@ export function generateAffirmationManifest(scenes: StoryboardScene[]): Affirmat
 }
 
 /**
+ * Generate affirmation manifest from normalized storyboard (from create/render flows)
+ * Accepts the format produced by normalizeStoryboard()
+ */
+export function generateAffirmationManifestFromNormalized(
+  scenes: Array<{
+    affirmation: string;
+    duration: number;
+    title?: string;
+    description?: string;
+    text?: string;
+  }>
+): AffirmationManifest {
+  let currentTime = 0;
+  const manifestScenes: AffirmationScene[] = scenes.map((scene) => {
+    const affirmationScene: AffirmationScene = {
+      affirmation: scene.affirmation,
+      startTime: currentTime,
+      endTime: currentTime + scene.duration,
+      position: 'center', // Default position for normalized storyboards
+    };
+    currentTime += scene.duration;
+    return affirmationScene;
+  });
+
+  return {
+    version: 1,
+    scenes: manifestScenes,
+    totalDuration: currentTime,
+  };
+}
+
+/**
  * Update affirmation manifest with new affirmations
  * This allows changing text without re-rendering video
  */

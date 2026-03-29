@@ -6,7 +6,7 @@ import { Id } from '../../../../../convex/_generated/dataModel';
 import { useConvexAuth } from 'convex/react';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { VideoPlayer } from '../../../../components/VideoPlayer';
+import { MindMoviePlayer } from '../../../../components/MindMoviePlayer';
 import { ArrowLeft, Clock, Film, CheckCircle, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
 import { getSceneCopy, normalizeStoryboard } from '@/lib/mindmovie/storyboard';
 
@@ -125,8 +125,9 @@ export default function WatchPage() {
 
         <div className="mb-8">
           {canWatch ? (
-            <VideoPlayer
-              videoUrl={movie.videoUrl ?? null}
+            <MindMoviePlayer
+              videoUrl={movie.videoUrl ?? ''}
+              manifest={movie.affirmationManifest}
               onComplete={handleVideoComplete}
             />
           ) : (

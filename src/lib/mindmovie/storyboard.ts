@@ -56,3 +56,22 @@ export function normalizeStoryboard(storyboard: unknown): NormalizedStoryboardSc
   if (!Array.isArray(storyboard)) return [];
   return storyboard.map((scene, index) => normalizeStoryboardScene((scene ?? {}) as any, index));
 }
+
+/**
+ * Convert normalized storyboard to format expected by generateAffirmationManifestFromNormalized
+ */
+export function toManifestFormat(scenes: NormalizedStoryboardScene[]): Array<{
+  affirmation: string;
+  duration: number;
+  title?: string;
+  description?: string;
+  text?: string;
+}> {
+  return scenes.map((scene) => ({
+    affirmation: scene.affirmation,
+    duration: scene.duration,
+    title: scene.title,
+    description: scene.description,
+    text: scene.text,
+  }));
+}
