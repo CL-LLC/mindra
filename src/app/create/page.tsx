@@ -51,7 +51,10 @@ export default function CreatePage() {
     t('create.progress.saving')
   ];
 
+  // Trimmed/filtered goals for submission
   const goals = useMemo(() => goalsText.split('\n').map((g) => g.trim()).filter(Boolean), [goalsText]);
+  // Raw lines for editing (preserves spaces during typing)
+  const goalLines = useMemo(() => goalsText.split('\n'), [goalsText]);
 
   if (!authLoading && !isAuthenticated) {
     if (typeof window !== 'undefined') window.location.replace('/sign-in');
@@ -172,7 +175,8 @@ export default function CreatePage() {
   };
 
   const addGoal = () => {
-    setGoalsText((prev) => (prev ? prev + '\n' : ''));
+    // Add a placeholder that won't be filtered out
+    setGoalsText((prev) => (prev ? prev + '\n' : '') + ' ');
   };
 
   const removeGoal = (index: number) => {
@@ -231,7 +235,7 @@ export default function CreatePage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  {goals.map((goal, index) => (
+                  {goalLines.map((goal, index) => (
                     <div key={index} className="flex items-start gap-2">
                       <div className="flex-1">
                         <input value={goal} onChange={(e) => {
@@ -243,7 +247,7 @@ export default function CreatePage() {
                       <button type="button" onClick={() => removeGoal(index)} className="mt-1 p-2 rounded bg-white/5 text-white/50 hover:text-red-400 hover:bg-white/10"><X className="w-4 h-4" /></button>
                     </div>
                   ))}
-                  {goals.length === 0 && (
+                  {goalLines.length === 0 && (
                     <textarea value={goalsText} onChange={(e) => setGoalsText(e.target.value)} rows={4} placeholder={t('create.goalsPlaceholder')} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary-500" />
                   )}
                 </div>
@@ -257,7 +261,6 @@ export default function CreatePage() {
 
         <aside className="space-y-4">
           <div className="bg-white/5 border border-white/10 rounded-xl p-5"><h3 className="font-semibold mb-3">{t('create.progress')}</h3><ul className="space-y-2">{STEPS.map((step, i) => { const done = i < stepIndex; const active = i === stepIndex; return <li key={i} className="flex items-center gap-2 text-sm">{done ? <CheckCircle2 className="w-4 h-4 text-green-400" /> : active ? <Loader2 className="w-4 h-4 text-primary-400 animate-spin" /> : <span className="w-4 h-4 rounded-full border border-white/20" />}<span className={done || active ? 'text-white' : 'text-white/50'}>{step}</span></li>; })}</ul></div>
-          <div className="bg-white/5 border border-white/10 rounded-xl p-5"><h3 className="font-semibold mb-3">{t('create.notes')}</h3><p className="text-sm text-white/60">{t('create.oneLineIsEnough')}</p></div>
         </aside>
       </main>
     </div>
