@@ -55,12 +55,7 @@ export async function POST(request: NextRequest) {
         };
       });
 
-      const scenesForRender = scenes.slice(0, 4);
-      if (scenes.length > scenesForRender.length) {
-        console.log(`Temporary test render cap enabled: rendering ${scenesForRender.length} of ${scenes.length} scenes.`);
-      }
-
-      const videoBuffer = await renderVideo(scenesForRender, { width: 1280, height: 720, fps: 30, quality: 'medium', musicTrack: movie.musicTrack });
+      const videoBuffer = await renderVideo(scenes, { width: 1280, height: 720, fps: 30, quality: 'medium', musicTrack: movie.musicTrack });
       const fs = await import('fs/promises');
       const path = await import('path');
       const videoDir = path.join(process.cwd(), 'public', 'videos');
@@ -71,7 +66,7 @@ export async function POST(request: NextRequest) {
       const videoUrl = `/api/videos/${videoFileName}`;
 
       // Generate affirmation manifest for playback-layer overlay using scenes with correct affirmations
-      const affirmationManifest = generateAffirmationManifestFromNormalized(scenesForRender.map((scene, index) => ({
+      const affirmationManifest = generateAffirmationManifestFromNormalized(scenes.map((scene, index) => ({
         affirmation: scene.affirmation,
         duration: scene.duration,
         title: scene.title,
