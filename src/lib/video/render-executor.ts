@@ -392,7 +392,8 @@ async function ensureFallbackMusicAsset(tempDir: string, musicAsset: { trackId: 
 }
 
 function getSceneVisualPrompt(scene: RenderScene, index: number): string {
-  const parts = [scene.title, scene.description, scene.imagePrompt, scene.affirmation]
+  // Only use visual description fields - exclude affirmation to avoid text in generated images
+  const parts = [scene.title, scene.description, scene.imagePrompt]
     .map(part => part?.trim())
     .filter(Boolean) as string[];
 

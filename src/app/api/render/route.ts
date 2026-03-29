@@ -69,9 +69,14 @@ export async function POST(request: NextRequest) {
       const videoPath = path.join(videoDir, videoFileName);
       await fs.writeFile(videoPath, videoBuffer);
       const videoUrl = `/api/videos/${videoFileName}`;
-      
-      // Generate affirmation manifest for playback-layer overlay
-      const affirmationManifest = generateAffirmationManifestFromNormalized(toManifestFormat(normalizedStoryboard));
+
+      // Generate affirmation manifest for playback-layer overlay using scenes with correct affirmations
+      const affirmationManifest = generateAffirmationManifestFromNormalized(scenesForRender.map((scene, index) => ({
+        affirmation: scene.affirmation,
+        duration: scene.duration,
+        title: scene.title,
+        description: scene.description,
+      })));
       
       await convex.mutation(api.mindMovies.updateVideo, { 
         id, 
