@@ -24,6 +24,8 @@ export interface RenderScene {
   narrationAudioDataUrl?: string;
   narrationMimeType?: string;
   narrationDurationMs?: number;
+  /** Movie language (e.g., 'en', 'es') - used to constrain in-image text/signage language */
+  language?: string;
 }
 
 export interface RenderOptions {
@@ -397,7 +399,15 @@ function getSceneVisualPrompt(scene: RenderScene, index: number): string {
 
   const lead = parts[0] || `Scene ${index + 1}`;
   const support = parts.slice(1).join(' | ');
-  return support ? `${lead}. ${support}` : lead;
+  const basePrompt = support ? `${lead}. ${support}` : lead;
+
+  // Enforce in-image text/signage language to match the movie language
+  if (scene.language && scene.language !== 'en') {
+    const langLabel = scene.language === 'es' ? 'Spanish' : scene.language.toUpperCase();
+    return `${basePrompt}. All visible text, signs, labels, documents, calendars, and any written content within the image must be in ${langLabel} language only`;
+  }
+
+  return basePrompt;
 }
 
 async function resolveBackgroundImage(url: string, tempDir: string, index: number): Promise<string | undefined> {
