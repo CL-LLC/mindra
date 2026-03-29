@@ -48,6 +48,7 @@ export const translations: Record<Language, Record<string, string>> = {
     // Create page
     "create.title": "Create Your Mind Movie",
     "create.subtitle": "Start with one line, then answer a few adaptive follow-ups or skip straight to the draft.",
+    "create.subtitleSimple": "Start with one line. AI will generate a title and goals you can edit.",
     "create.whatDoYouWant": "What do you want to accomplish?",
     "create.placeholder": "Example: I want to land a better role, feel confident in interviews, and rebuild my fitness routine.",
     "create.oneLineIsEnough": "One line is enough. You can skip the follow-ups and generate now.",
@@ -78,6 +79,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "create.error.addGoal": "Add at least one goal to continue.",
     "create.success.ready": "Your mind movie is ready to review.",
     "create.untitled": "My Mind Movie",
+    "create.goalsPlaceholder": "Enter your goals (one per line)",
 
     // Clarity questions
     "clarity.whatMatters": "What matters most in this?",
@@ -143,6 +145,33 @@ export const translations: Record<Language, Record<string, string>> = {
     "movie.movieNotFound": "Mind movie not found.",
     "movie.finalRenderUnlocked": "All affirmations are recorded. Final render is unlocked.",
     "movie.finalRenderLocked": "Final render is locked until every affirmation is recorded.",
+    "movie.dashboard": "Dashboard",
+    "movie.archive": "Archive",
+    "movie.unarchive": "Unarchive",
+    "movie.loading": "Loading…",
+    "movie.backToDetail": "Back to detail",
+
+    // Status labels
+    "status.draft": "Draft",
+    "status.rendering": "Rendering",
+    "status.ready": "Ready",
+    "status.archived": "Archived",
+
+    // Edit page
+    "edit.title": "Edit Mind Movie",
+    "edit.titleLabel": "Title",
+    "edit.goalsLabel": "Goals (one per line)",
+    "edit.saveChanges": "Save Changes",
+    "edit.backToDetail": "Back to detail",
+    "edit.errorAddGoal": "Add at least one goal.",
+    "edit.errorSave": "Could not save changes.",
+
+    // Create page additions for goal management
+    "create.addGoal": "Add goal",
+    "create.removeGoal": "Remove goal",
+    "create.regenerateGoals": "Regenerate goals",
+    "create.skipToManual": "Skip to manual entry",
+    "create.generatingDraft": "Generating draft…",
   },
   es: {
     // App chrome
@@ -189,6 +218,7 @@ export const translations: Record<Language, Record<string, string>> = {
     // Create page
     "create.title": "Crea Tu Película Mental",
     "create.subtitle": "Comienza con una línea, luego responde algunas preguntas de seguimiento o salta directamente al borrador.",
+    "create.subtitleSimple": "Comienza con una línea. La IA generará un título y objetivos que puedes editar.",
     "create.whatDoYouWant": "¿Qué quieres lograr?",
     "create.placeholder": "Ejemplo: Quiero conseguir un mejor trabajo, sentirme seguro en las entrevistas y retomar mi rutina de ejercicio.",
     "create.oneLineIsEnough": "Una línea es suficiente. Puedes saltarte las preguntas de seguimiento y generar ahora.",
@@ -219,6 +249,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "create.error.addGoal": "Añade al menos un objetivo para continuar.",
     "create.success.ready": "Tu película mental está lista para revisar.",
     "create.untitled": "Mi Película Mental",
+    "create.goalsPlaceholder": "Ingresa tus objetivos (uno por línea)",
 
     // Clarity questions
     "clarity.whatMatters": "¿Qué es lo más importante aquí?",
@@ -284,6 +315,33 @@ export const translations: Record<Language, Record<string, string>> = {
     "movie.movieNotFound": "Película mental no encontrada.",
     "movie.finalRenderUnlocked": "Todas las afirmaciones están grabadas. El renderizado final está desbloqueado.",
     "movie.finalRenderLocked": "El renderizado final está bloqueado hasta que todas las afirmaciones estén grabadas.",
+    "movie.dashboard": "Panel",
+    "movie.archive": "Archivar",
+    "movie.unarchive": "Desarchivar",
+    "movie.loading": "Cargando…",
+    "movie.backToDetail": "Volver al detalle",
+
+    // Status labels
+    "status.draft": "Borrador",
+    "status.rendering": "Renderizando",
+    "status.ready": "Listo",
+    "status.archived": "Archivada",
+
+    // Edit page
+    "edit.title": "Editar Película Mental",
+    "edit.titleLabel": "Título",
+    "edit.goalsLabel": "Objetivos (uno por línea)",
+    "edit.saveChanges": "Guardar Cambios",
+    "edit.backToDetail": "Volver al detalle",
+    "edit.errorAddGoal": "Añade al menos un objetivo.",
+    "edit.errorSave": "No se pudieron guardar los cambios.",
+
+    // Create page additions for goal management
+    "create.addGoal": "Añadir objetivo",
+    "create.removeGoal": "Eliminar objetivo",
+    "create.regenerateGoals": "Regenerar objetivos",
+    "create.skipToManual": "Saltar a entrada manual",
+    "create.generatingDraft": "Generando borrador…",
   },
 };
 

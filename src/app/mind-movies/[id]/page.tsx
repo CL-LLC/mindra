@@ -8,8 +8,7 @@ import { ArrowLeft, Play, Film, Loader2, Archive, ArchiveRestore, Mic, Square, R
 import { api } from '../../../../convex/_generated/api';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { getSceneCopy, normalizeStoryboard } from '@/lib/mindmovie/storyboard';
-
-const statusTone: Record<string, string> = { draft: 'bg-slate-500/15 text-slate-200 border-slate-400/20', rendering: 'bg-yellow-500/15 text-yellow-200 border-yellow-400/20', ready: 'bg-emerald-500/15 text-emerald-200 border-emerald-400/20', archived: 'bg-amber-500/15 text-amber-200 border-amber-400/20' };
+import { useLanguage } from '@/lib/hooks';
 
 type Recording = { affirmationIndex: number; recordedAt: number; mimeType: string; audioDataUrl: string; durationMs?: number };
 
@@ -22,6 +21,8 @@ export default function Page() {
   const updateStatus = useMutation(api.mindMovies.updateStatus);
   const upsertVoiceRecording = useMutation(api.mindMovies.upsertVoiceRecording);
   const removeVoiceRecording = useMutation(api.mindMovies.removeVoiceRecording);
+  const { t } = useLanguage();
+
   const [rendering, setRendering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyIndex, setBusyIndex] = useState<number | null>(null);
@@ -87,38 +88,83 @@ export default function Page() {
   const stopRecording = () => { if (mediaRecorderRef.current && recordingState === 'recording') { setRecordingState('stopping'); mediaRecorderRef.current.stop(); } };
   const deleteRecording = async (index: number) => { try { await removeVoiceRecording({ id: movieId, affirmationIndex: index }); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : 'Could not delete recording.'); } };
   const renderMovie = async () => {
-    if (!allRecorded) return setError(`Record all ${affirmations.length} affirmations before rendering. Missing ${missing.length} more.`);
+    if (!allRecorded) return setError(`${t('movie.recordAllAffirmations')} ${t('movie.missingCount')} ${missing.length} ${t('movie.more')}.`);
     setRendering(true); setError(null);
     try { const res = await fetch('/api/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: movieId }) }); const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Render failed'); router.refresh(); }
     catch (e) { setError(e instanceof Error ? e.message : 'Render failed'); }
     finally { setRendering(false); }
   };
-  const setArchived = async (status: 'ready' | 'archived') => { if (!movie) return; if (status === 'archived' && !window.confirm('Archive this Mind Movie?')) return; await updateStatus({ id: movie._id, status }); router.refresh(); };
+  const setArchived = async (status: 'ready' | 'archived') => { if (!movie) return; if (status === 'archived' && !window.confirm(t('dashboard.archiveConfirm'))) return; await updateStatus({ id: movie._id, status }); router.refresh(); };
+
+  // Status label helper
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'draft': return t('status.draft');
+      case 'rendering': return t('status.rendering');
+      case 'ready': return t('status.ready');
+      case 'archived': return t('status.archived');
+      default: return status;
+    }
+  };
+
+  // Status tone classes
+  const statusTone: Record<string, string> = {
+    draft: 'bg-slate-500/15 text-slate-200 border-slate-400/20',
+    rendering: 'bg-yellow-500/15 text-yellow-200 border-yellow-400/20',
+    ready: 'bg-emerald-500/15 text-emerald-200 border-emerald-400/20',
+    archived: 'bg-amber-500/15 text-amber-200 border-amber-400/20'
+  };
 
   if (!isLoading && !isAuthenticated) return <div className="min-h-screen bg-slate-900" />;
-  if (movie === undefined) return <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">Loading…</div>;
-  if (!movie) return <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">Mind movie not found.</div>;
+  if (movie === undefined) return <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">{t('movie.loading')}</div>;
+  if (!movie) return <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">{t('movie.movieNotFound')}</div>;
   const showWatch = movie.status === 'ready' && Boolean(movie.videoUrl);
 
   return <div className="min-h-screen bg-slate-900 text-white p-8"><div className="max-w-5xl mx-auto space-y-6">
-    <div className="flex items-center justify-between gap-4 flex-wrap"><Link href="/dashboard" className="text-slate-300 hover:text-white inline-flex items-center gap-2"><ArrowLeft className="w-4 h-4" />Dashboard</Link><div className="flex gap-2 flex-wrap">{movie.status === 'archived' ? <button onClick={() => setArchived('ready')} className="px-4 py-2 rounded-lg bg-white/10 inline-flex items-center gap-2"><ArchiveRestore className="w-4 h-4" />Unarchive</button> : <button onClick={() => setArchived('archived')} className="px-4 py-2 rounded-lg bg-white/10 inline-flex items-center gap-2"><Archive className="w-4 h-4" />Archive</button>}{showWatch && <Link href={`/mind-movies/${movie._id}/watch`} className="px-4 py-2 rounded-lg bg-blue-600 inline-flex items-center gap-2"><Play className="w-4 h-4" />Watch Now</Link>}{movie.status !== 'rendering' && !movie.videoUrl && <button onClick={renderMovie} disabled={!allRecorded || rendering} className="px-4 py-2 rounded-lg bg-purple-600 disabled:bg-purple-600/50 inline-flex items-center gap-2"><Film className="w-4 h-4" />{rendering ? 'Rendering…' : 'Render Video'}</button>}{movie.status === 'rendering' && <span className="px-4 py-2 rounded-lg bg-yellow-600/30 text-yellow-300 inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Rendering</span>}</div></div>
-    <div className={`rounded-lg border px-4 py-3 ${statusTone[movie.status]}`}><div className="font-semibold capitalize">{movie.status}</div><div className="text-sm opacity-90">{!allRecorded ? `Record all affirmations first. Missing ${missing.length}.` : 'All affirmations recorded. You can render now.'}</div></div>
+    <div className="flex items-center justify-between gap-4 flex-wrap">
+      <Link href="/dashboard" className="text-slate-300 hover:text-white inline-flex items-center gap-2"><ArrowLeft className="w-4 h-4" />{t('movie.dashboard')}</Link>
+      <div className="flex gap-2 flex-wrap">
+        {movie.status === 'archived' ? <button onClick={() => setArchived('ready')} className="px-4 py-2 rounded-lg bg-white/10 inline-flex items-center gap-2"><ArchiveRestore className="w-4 h-4" />{t('movie.unarchive')}</button> : <button onClick={() => setArchived('archived')} className="px-4 py-2 rounded-lg bg-white/10 inline-flex items-center gap-2"><Archive className="w-4 h-4" />{t('movie.archive')}</button>}
+        {showWatch && <Link href={`/mind-movies/${movie._id}/watch`} className="px-4 py-2 rounded-lg bg-blue-600 inline-flex items-center gap-2"><Play className="w-4 h-4" />{t('movie.watchNow')}</Link>}
+        {movie.status !== 'rendering' && !movie.videoUrl && <button onClick={renderMovie} disabled={!allRecorded || rendering} className="px-4 py-2 rounded-lg bg-purple-600 disabled:bg-purple-600/50 inline-flex items-center gap-2"><Film className="w-4 h-4" />{rendering ? t('movie.rendering') : t('movie.renderVideo')}</button>}
+        {movie.status === 'rendering' && <span className="px-4 py-2 rounded-lg bg-yellow-600/30 text-yellow-300 inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />{t('status.rendering')}</span>}
+      </div>
+    </div>
+
+    <div className={`rounded-lg border px-4 py-3 ${statusTone[movie.status]}`}>
+      <div className="font-semibold capitalize">{getStatusLabel(movie.status)}</div>
+      <div className="text-sm opacity-90">{!allRecorded ? `${t('movie.recordAllAffirmations')} ${t('movie.missingCount')} ${missing.length}.` : t('movie.allRecorded')}</div>
+    </div>
+
     {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-200 flex items-start gap-2"><AlertCircle className="w-4 h-4 mt-0.5" /><span>{error}</span></div>}
-    <section className="space-y-3"><div className="flex items-center justify-between"><h2 className="text-xl font-semibold">Voice affirmations</h2><div className="text-sm text-slate-400">{recordedCount}/{affirmations.length} recorded</div></div>
+
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">{t('movie.voiceAffirmations')}</h2>
+        <div className="text-sm text-slate-400">{recordedCount}/{affirmations.length} {t('movie.recorded')}</div>
+      </div>
       <div className="h-2 rounded-full bg-white/10 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${affirmations.length ? (recordedCount / affirmations.length) * 100 : 0}%` }} /></div>
       {affirmations.map((affirmation, index) => {
         const recording = recordingMap.get(index);
         const isCurrent = recordingIndex === index && recordingState !== 'idle';
-        return <div key={index} className="rounded-xl border border-slate-700 bg-slate-800 p-4 space-y-3"><div className="flex items-start justify-between gap-4"><div><div className="text-xs uppercase tracking-wide text-slate-400">Affirmation {index + 1}</div><div className="font-medium">{affirmation}</div></div>{recording ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1 text-sm text-emerald-200"><CheckCircle2 className="w-4 h-4" />Recorded</span> : <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/15 px-3 py-1 text-sm text-slate-300">Not recorded</span>}</div>
-          {isCurrent && <div className="text-sm text-amber-300">Recording… {seconds}s</div>}
+        return <div key={index} className="rounded-xl border border-slate-700 bg-slate-800 p-4 space-y-3">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-slate-400">{t('movie.affirmation')} {index + 1}</div>
+              <div className="font-medium">{affirmation}</div>
+            </div>
+            {recording ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1 text-sm text-emerald-200"><CheckCircle2 className="w-4 h-4" />{t('movie.recordedBadge')}</span> : <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/15 px-3 py-1 text-sm text-slate-300">{t('movie.notRecorded')}</span>}
+          </div>
+          {isCurrent && <div className="text-sm text-amber-300">{t('movie.recording')} {seconds}s</div>}
           {recording && <audio controls src={recording.audioDataUrl} className="w-full" />}
           <div className="flex gap-2 flex-wrap">
-            {isCurrent ? <button onClick={stopRecording} className="px-3 py-2 rounded-lg bg-rose-600 inline-flex items-center gap-2"><Square className="w-4 h-4" />Stop</button> : <button onClick={() => startRecording(index)} disabled={busyIndex !== null || recordingState !== 'idle'} className="px-3 py-2 rounded-lg bg-white/10 inline-flex items-center gap-2"><Mic className="w-4 h-4" />{recording ? 'Re-record' : 'Record'}</button>}
-            {recording && <button onClick={() => deleteRecording(index)} className="px-3 py-2 rounded-lg bg-white/10 inline-flex items-center gap-2"><RotateCcw className="w-4 h-4" />Clear</button>}
+            {isCurrent ? <button onClick={stopRecording} className="px-3 py-2 rounded-lg bg-rose-600 inline-flex items-center gap-2"><Square className="w-4 h-4" />{t('movie.stop')}</button> : <button onClick={() => startRecording(index)} disabled={busyIndex !== null || recordingState !== 'idle'} className="px-3 py-2 rounded-lg bg-white/10 inline-flex items-center gap-2"><Mic className="w-4 h-4" />{recording ? t('movie.reRecord') : t('movie.record')}</button>}
+            {recording && <button onClick={() => deleteRecording(index)} className="px-3 py-2 rounded-lg bg-white/10 inline-flex items-center gap-2"><RotateCcw className="w-4 h-4" />{t('movie.clear')}</button>}
           </div>
         </div>;
       })}
     </section>
-    <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">{allRecorded ? 'All affirmations are recorded. Final render is unlocked.' : `Final render is locked until every affirmation is recorded. Missing ${missing.length}.`}</div>
+
+    <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">{allRecorded ? t('movie.finalRenderUnlocked') : `${t('movie.finalRenderLocked')} ${t('movie.missingCount')} ${missing.length}.`}</div>
   </div></div>;
 }
