@@ -4,8 +4,8 @@ import { ConvexHttpClient } from 'convex/browser';
 import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server';
 import { api } from '../../../../convex/_generated/api';
 import { renderVideo } from '../../../lib/video/render-executor';
-import { validateStoryboard } from '../../../lib/video/renderer';
-import { normalizeStoryboard } from '../../../lib/mindmovie/storyboard';
+import { validateStoryboard, generateAffirmationManifestFromNormalized } from '../../../lib/video/renderer';
+import { normalizeStoryboard, toManifestFormat } from '../../../lib/mindmovie/storyboard';
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL!;
 
@@ -69,7 +69,16 @@ export async function POST(request: NextRequest) {
       const videoPath = path.join(videoDir, videoFileName);
       await fs.writeFile(videoPath, videoBuffer);
       const videoUrl = `/api/videos/${videoFileName}`;
-      await convex.mutation(api.mindMovies.updateVideo, { id, videoUrl, status: 'ready' });
+      
+      // Generate affirmation manifest for playback-layer overlay
+      const affirmationManifest = generateAffirmationManifestFromNormalized(toManifestFormat(normalizedStoryboard));
+      
+      await convex.mutation(api.mindMovies.updateVideo, { 
+        id, 
+        videoUrl, 
+        status: 'ready',
+        affirmationManifest // Pass manifest for playback-layer overlay
+      });
       return NextResponse.json({ success: true, message: 'Render complete', videoUrl, size: videoBuffer.length });
     } catch (renderError) {
       await convex.mutation(api.mindMovies.updateStatus, { id, status: 'draft' });
