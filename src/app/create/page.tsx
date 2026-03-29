@@ -4,7 +4,7 @@ import { FormEvent, useMemo, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useConvexAuth, useMutation, useAction, useQuery } from 'convex/react';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle2, Loader2, Sparkles, Wand2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Loader2, Sparkles, Wand2, Plus, X, RefreshCw } from 'lucide-react';
 import { api } from '../../../convex/_generated/api';
 import { buildDeterministicScaffold } from '@/lib/mindmovie/scaffold';
 import { normalizeStoryboard } from '@/lib/mindmovie/storyboard';
@@ -20,37 +20,10 @@ function detectLanguage(texts: string[]) {
   return spanishScore > englishScore ? 'es' : 'en';
 }
 
-const QUESTION_BANK = {
-  en: [
-    () => 'What matters most in this?',
-    (input: string, answers: string[]) => (answers[0]?.toLowerCase().includes('job') || answers[0]?.toLowerCase().includes('career'))
-      ? 'What is the biggest obstacle right now?'
-      : 'What would make this feel like a real win?',
-    (input: string, answers: string[]) => (input.toLowerCase().includes('timing') || answers.join(' ').toLowerCase().includes('month'))
-      ? 'Is there a deadline or timeline I should honor?'
-      : 'Any detail you want the draft to keep front and center?'
-  ],
-  es: [
-    () => '¿Qué es lo más importante aquí?',
-    (input: string, answers: string[]) => (answers[0]?.toLowerCase().includes('trabajo') || answers[0]?.toLowerCase().includes('carrera'))
-      ? '¿Cuál es el obstáculo más grande ahora mismo?'
-      : '¿Qué haría que esto se sienta como un logro real?',
-    (input: string, answers: string[]) => (input.toLowerCase().includes('tiempo') || answers.join(' ').toLowerCase().includes('mes'))
-      ? '¿Hay una fecha o plazo que deba respetar?'
-      : '¿Hay algún detalle que deba mantener al frente?'
-  ]
-} as const;
-
-function makeQuestion(language: 'en' | 'es', intake: string, answers: string[], index: number) {
-  const fn = QUESTION_BANK[language][Math.min(index, QUESTION_BANK[language].length - 1)];
-  return fn(intake, answers);
-}
-
 export default function CreatePage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const createMindMovie = useMutation(api.mindMovies.create);
-  const refineCreateBrief = useAction(api.aiFunctions.refineCreateBrief);
   const proposeCreateDraft = useAction(api.aiFunctions.proposeCreateDraft);
   const generateAffirmations = useAction(api.aiFunctions.generateAffirmations);
   const generateStoryboard = useAction(api.aiFunctions.generateStoryboard);
@@ -58,25 +31,17 @@ export default function CreatePage() {
 
   const { t, language: uiLanguage } = useLanguage();
 
-  const [mode, setMode] = useState<'intake' | 'clarity' | 'review' | 'manual'>('intake');
+  const [mode, setMode] = useState<'intake' | 'review' | 'manual'>('intake');
   const [intake, setIntake] = useState('');
-  const [clarityAnswers, setClarityAnswers] = useState<string[]>([]);
-  const [clarityLanguage, setClarityLanguage] = useState<'en' | 'es'>('en');
   const [title, setTitle] = useState('');
   const [goalsText, setGoalsText] = useState('');
   const [draftLanguage, setDraftLanguage] = useState<'en' | 'es' | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
+  const [isRegeneratingGoals, setIsRegeneratingGoals] = useState(false);
   const [stepIndex, setStepIndex] = useState(-1);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-
-  // Default clarity language to user's saved preference
-  useEffect(() => {
-    if (user?.preferredLanguage) {
-      setClarityLanguage(user.preferredLanguage);
-    }
-  }, [user?.preferredLanguage]);
 
   const STEPS = [
     t('create.progress.validating'),
@@ -86,16 +51,13 @@ export default function CreatePage() {
   ];
 
   const goals = useMemo(() => goalsText.split('\n').map((g) => g.trim()).filter(Boolean), [goalsText]);
-  const qIndex = clarityAnswers.length;
-  const question = makeQuestion(clarityLanguage, intake, clarityAnswers, qIndex);
-  const currentAnswer = clarityAnswers[qIndex] ?? '';
 
   if (!authLoading && !isAuthenticated) {
     if (typeof window !== 'undefined') window.location.replace('/sign-in');
     return <div className="min-h-screen bg-slate-900" />;
   }
 
-  const runGeneration = async (nextTitle: string, nextGoals: string[], contextAnswers: string[] = clarityAnswers) => {
+  const runGeneration = async (nextTitle: string, nextGoals: string[]) => {
     const normalizedTitle = nextTitle.trim() || t('create.untitled');
     if (nextGoals.length === 0) throw new Error(t('create.error.addGoal'));
 
@@ -106,7 +68,7 @@ export default function CreatePage() {
     try {
       setStepIndex(0);
       // Use user's saved language preference, fallback to detected language
-      const language = (user?.preferredLanguage ?? detectLanguage([normalizedTitle, ...nextGoals, intake, ...contextAnswers])) as 'en' | 'es';
+      const language = (user?.preferredLanguage ?? draftLanguage ?? detectLanguage([normalizedTitle, ...nextGoals, intake])) as 'en' | 'es';
 
       setStepIndex(1);
       let affirmations = await generateAffirmations({ goals: nextGoals, language });
@@ -161,25 +123,16 @@ export default function CreatePage() {
     setError(null);
     setSuccess(null);
     if (!intake.trim()) return setError(t('create.error.tellMe'));
-    // Use saved preference or detect from intake
-    setClarityLanguage(user?.preferredLanguage ?? detectLanguage([intake]));
-    setClarityAnswers([]);
-    setMode('clarity');
-  };
-
-  const generateDraftFromContext = async (answers: string[]) => {
-    setError(null);
-    setSuccess(null);
+    
     setIsGeneratingDraft(true);
     try {
-      const refined = await refineCreateBrief({ intake: intake.trim(), answers });
-      const draft = await proposeCreateDraft({ input: `${intake.trim()}\n${answers.filter(Boolean).join('\n')}\n${refined.brief}` });
+      const draft = await proposeCreateDraft({ input: intake.trim() });
       setTitle(draft.title);
       setGoalsText(draft.goals.join('\n'));
       setDraftLanguage(draft.language);
       setMode('review');
     } catch (err: any) {
-      console.error('Clarity step failed:', err);
+      console.error('Draft generation failed:', err);
       setError(err?.message || 'AI draft failed. Use manual entry below.');
       setMode('manual');
     } finally {
@@ -187,36 +140,34 @@ export default function CreatePage() {
     }
   };
 
-  const handleClarityContinue = async () => {
-    const nextAnswers = clarityAnswers.filter((answer) => answer.trim().length > 0);
-    if (nextAnswers.length < 2 && clarityAnswers.length < 4) {
-      setClarityAnswers((prev) => [...prev, '']);
-      return;
+  const handleRegenerateGoals = async () => {
+    if (!intake.trim()) return;
+    setIsRegeneratingGoals(true);
+    setError(null);
+    try {
+      const draft = await proposeCreateDraft({ input: intake.trim() });
+      setTitle(draft.title);
+      setGoalsText(draft.goals.join('\n'));
+      setDraftLanguage(draft.language);
+    } catch (err: any) {
+      console.error('Regenerate failed:', err);
+      setError(err?.message || 'Could not regenerate goals.');
+    } finally {
+      setIsRegeneratingGoals(false);
     }
-    if (clarityAnswers.length < 4) {
-      setClarityAnswers((prev) => [...prev, '']);
-      return;
-    }
-    await generateDraftFromContext(nextAnswers);
   };
 
-  const updateCurrentAnswer = (value: string) => {
-    setClarityAnswers((prev) => {
-      const next = [...prev];
-      next[qIndex] = value;
-      return next.slice(0, 4);
+  const addGoal = () => {
+    setGoalsText((prev) => (prev ? prev + '\n' : ''));
+  };
+
+  const removeGoal = (index: number) => {
+    setGoalsText((prev) => {
+      const lines = prev.split('\n');
+      lines.splice(index, 1);
+      return lines.join('\n');
     });
   };
-
-  const skipCurrentQuestion = () => {
-    if (clarityAnswers.length >= 4) {
-      void generateDraftFromContext(clarityAnswers.filter((answer) => answer.trim()));
-      return;
-    }
-    setClarityAnswers((prev) => [...prev, '']);
-  };
-
-  const finishNow = () => void generateDraftFromContext(clarityAnswers.filter((answer) => answer.trim()));
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">
@@ -231,7 +182,7 @@ export default function CreatePage() {
         <section className="lg:col-span-2 space-y-6">
           <div>
             <h1 className="text-3xl font-bold mb-2">{t('create.title')}</h1>
-            <p className="text-white/60">{t('create.subtitle')}</p>
+            <p className="text-white/60">{t('create.subtitleSimple')}</p>
           </div>
 
           {mode === 'intake' && (
@@ -243,36 +194,13 @@ export default function CreatePage() {
               </div>
               {error && <p className="text-red-400 text-sm">{error}</p>}
               <div className="flex flex-wrap gap-3">
-                <button type="submit" className="bg-primary-500 hover:bg-primary-600 rounded-lg py-3 px-5 font-semibold flex items-center gap-2"><Wand2 className="w-4 h-4" />{t('create.continue')}</button>
+                <button type="submit" disabled={isGeneratingDraft} className="bg-primary-500 hover:bg-primary-600 disabled:opacity-60 rounded-lg py-3 px-5 font-semibold flex items-center gap-2">
+                  {isGeneratingDraft ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                  {isGeneratingDraft ? t('create.generatingDraft') : t('create.continue')}
+                </button>
                 <button type="button" onClick={() => setMode('manual')} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">{t('create.useManualEntry')}</button>
               </div>
             </form>
-          )}
-
-          {mode === 'clarity' && (
-            <div className="space-y-5 bg-white/5 border border-white/10 rounded-xl p-6">
-              <div>
-                <h2 className="text-xl font-semibold mb-1">{t('create.clarityStep')}</h2>
-                <p className="text-sm text-white/50">{t('create.clarityDesc')}</p>
-              </div>
-              <div className="rounded-lg border border-white/10 bg-black/20 p-4 space-y-2 text-sm">
-                <div className="text-white/40 uppercase tracking-wide text-[11px]">{t('create.youSaid')}</div>
-                <div className="whitespace-pre-wrap text-white/80">{intake}</div>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <div className="text-xs text-white/40 mb-1">{t('create.followUp')} {Math.min(qIndex + 1, 4)} {t('create.of')} 4</div>
-                  <label className="block text-sm text-white/70 mb-2">{question}</label>
-                  <input value={currentAnswer} onChange={(e) => updateCurrentAnswer(e.target.value)} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary-500" placeholder={t('clarity.shortAnswer')} />
-                </div>
-              </div>
-              {error && <p className="text-red-400 text-sm">{error}</p>}
-              <div className="flex flex-wrap gap-3">
-                <button type="button" onClick={handleClarityContinue} disabled={isGeneratingDraft} className="bg-primary-500 hover:bg-primary-600 disabled:opacity-60 rounded-lg py-3 px-5 font-semibold">{qIndex < 3 ? t('create.nextQuestion') : t('create.generateDraft')}</button>
-                <button type="button" onClick={skipCurrentQuestion} disabled={isGeneratingDraft} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">{t('create.skip')}</button>
-                <button type="button" onClick={() => void generateDraftFromContext(clarityAnswers.map((a) => a.trim()).filter(Boolean))} disabled={isGeneratingDraft} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">{t('create.generateNow')}</button>
-              </div>
-            </div>
           )}
 
           {(mode === 'review' || mode === 'manual') && (
@@ -281,10 +209,36 @@ export default function CreatePage() {
               {success && <p className="text-green-400 text-sm">{success}</p>}
               {error && <p className="text-red-400 text-sm">{error}</p>}
               <div><label className="block text-sm text-white/70 mb-2">{t('create.titleField')}</label><input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary-500" /></div>
-              <div><label className="block text-sm text-white/70 mb-2">{t('create.goals')}</label><textarea value={goalsText} onChange={(e) => setGoalsText(e.target.value)} rows={6} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary-500" /></div>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm text-white/70">{t('create.goals')}</label>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={addGoal} className="text-xs px-2 py-1 rounded bg-white/10 text-white/70 hover:text-white flex items-center gap-1"><Plus className="w-3 h-3" />{t('create.addGoal')}</button>
+                    {mode === 'review' && <button type="button" onClick={handleRegenerateGoals} disabled={isRegeneratingGoals} className="text-xs px-2 py-1 rounded bg-white/10 text-white/70 hover:text-white flex items-center gap-1 disabled:opacity-50"><RefreshCw className={`w-3 h-3 ${isRegeneratingGoals ? 'animate-spin' : ''}`} />{t('create.regenerateGoals')}</button>}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {goals.map((goal, index) => (
+                    <div key={index} className="flex items-start gap-2">
+                      <div className="flex-1">
+                        <input value={goal} onChange={(e) => {
+                          const lines = goalsText.split('\n');
+                          lines[index] = e.target.value;
+                          setGoalsText(lines.join('\n'));
+                        }} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-primary-500" />
+                      </div>
+                      <button type="button" onClick={() => removeGoal(index)} className="mt-1 p-2 rounded bg-white/5 text-white/50 hover:text-red-400 hover:bg-white/10"><X className="w-4 h-4" /></button>
+                    </div>
+                  ))}
+                  {goals.length === 0 && (
+                    <textarea value={goalsText} onChange={(e) => setGoalsText(e.target.value)} rows={4} placeholder={t('create.goalsPlaceholder')} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary-500" />
+                  )}
+                </div>
+              </div>
               <div className="flex flex-wrap gap-3">
                 <button type="button" onClick={() => void runGeneration(title, goals)} disabled={isSubmitting || goals.length === 0} className="bg-primary-500 hover:bg-primary-600 disabled:opacity-60 rounded-lg py-3 px-5 font-semibold flex items-center gap-2">{isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}{t('create.createMindMovie')}</button>
-                <button type="button" onClick={() => setMode('clarity')} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">{t('create.backToClarity')}</button>
+                {mode === 'review' && <button type="button" onClick={() => setMode('manual')} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">{t('create.useManualEntry')}</button>}
+                {mode === 'manual' && <button type="button" onClick={() => { if (intake.trim()) setMode('review'); }} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">{t('create.skipToManual')}</button>}
               </div>
             </div>
           )}
@@ -292,7 +246,7 @@ export default function CreatePage() {
 
         <aside className="space-y-4">
           <div className="bg-white/5 border border-white/10 rounded-xl p-5"><h3 className="font-semibold mb-3">{t('create.progress')}</h3><ul className="space-y-2">{STEPS.map((step, i) => { const done = i < stepIndex; const active = i === stepIndex; return <li key={i} className="flex items-center gap-2 text-sm">{done ? <CheckCircle2 className="w-4 h-4 text-green-400" /> : active ? <Loader2 className="w-4 h-4 text-primary-400 animate-spin" /> : <span className="w-4 h-4 rounded-full border border-white/20" />}<span className={done || active ? 'text-white' : 'text-white/50'}>{step}</span></li>; })}</ul></div>
-          <div className="bg-white/5 border border-white/10 rounded-xl p-5"><h3 className="font-semibold mb-3">{t('create.notes')}</h3><p className="text-sm text-white/60">Adaptive follow-ups stop after a few questions. The original intake is preserved, and the draft still flows through the same AI and creation pipeline.</p></div>
+          <div className="bg-white/5 border border-white/10 rounded-xl p-5"><h3 className="font-semibold mb-3">{t('create.notes')}</h3><p className="text-sm text-white/60">One line is enough. AI will generate a title and goals you can edit, add to, or regenerate.</p></div>
         </aside>
       </main>
     </div>
