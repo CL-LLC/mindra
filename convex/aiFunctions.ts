@@ -24,9 +24,9 @@ function normalizeAffirmation(value: string) {
 }
 
 function detectLanguage(texts: string[]) {
-  const sample = texts.join(' ').toLowerCase();
-  const spanishSignals = [" el ", " la ", " los ", " las ", " tengo ", " quiero ", " estoy ", " ser ", " conmigo", " éxito", " confianza", " trabajo", " dinero", " salud", " familia", " mi ", " mis "];
-  const englishSignals = [" the ", " and ", " to ", " my ", " is ", " am ", " want ", " become ", " confidence", " career", " health", " money", " family", " daily "];
+  const sample = ' ' + texts.join(' ').toLowerCase() + ' ';
+  const spanishSignals = [" el ", " la ", " los ", " las ", " tengo ", " quiero ", " estoy ", " ser ", " conmigo", " éxito", " confianza", " trabajo", " dinero ", " salud ", " familia ", " mi ", " mis ", " para ", " por ", " con ", " una ", " uno ", " quiero ", " lograr ", " obtener ", " alcanzar ", " conseguir ", " tener ", " ser ", " estar ", " voy ", " puedo ", " haré ", " mi meta ", " mi objetivo "];
+  const englishSignals = [" the ", " and ", " to ", " my ", " is ", " am ", " want ", " become ", " confidence ", " career ", " health ", " money ", " family ", " daily ", " i want ", " i will ", " i can ", " my goal ", " my aim ", " achieve ", " accomplish ", " get ", " have ", " be ", " for ", " with ", " a "];
   const spanishScore = spanishSignals.reduce((sum, s) => sum + (sample.includes(s) ? 1 : 0), 0);
   const englishScore = englishSignals.reduce((sum, s) => sum + (sample.includes(s) ? 1 : 0), 0);
   return spanishScore > englishScore ? 'es' : 'en';
@@ -88,6 +88,12 @@ function languageInstruction(language: string) {
     : 'Write every affirmation in natural English. Never translate to Spanish.';
 }
 
+function draftLanguageInstruction(language: string) {
+  return language === 'es'
+    ? 'Escribe el título y los objetivos en español natural. No traduzcas al inglés. Mantén el mismo idioma que la entrada del usuario.'
+    : 'Write the title and goals in natural English. Do not translate to Spanish. Keep the same language as the user input.';
+}
+
 export const refineCreateBrief = action({
   args: {
     intake: v.string(),
@@ -139,6 +145,7 @@ export const refineCreateBrief = action({
 export const proposeCreateDraft = action({
   args: {
     input: v.string(),
+    preferredLanguage: v.optional(v.union(v.literal('en'), v.literal('es'))),
   },
   returns: v.object({
     title: v.string(),
@@ -156,17 +163,19 @@ export const proposeCreateDraft = action({
       throw new Error("Add a short description of what you want to accomplish.");
     }
 
-    const language = detectLanguage([trimmedInput]) as 'en' | 'es';
+    // Detect language from input, fall back to user preference if detection is uncertain
+    const detectedLanguage = detectLanguage([trimmedInput]);
+    const language: 'en' | 'es' = detectedLanguage === 'es' || args.preferredLanguage === 'es' ? 'es' : 'en';
     const response = await getOpenAIClient().chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "system",
-          content: `You are helping a user start a Mindra mind movie. ${languageInstruction(language)} Return valid JSON only.`,
+          content: `You are helping a user start a Mindra mind movie. ${draftLanguageInstruction(language)} Return valid JSON only.`,
         },
         {
           role: "user",
-          content: `User input: ${trimmedInput}\n\nCreate:\n- a concise, compelling title\n- 3 to 5 concrete goals\n\nRules:\n- Use the same language as the input\n- Keep the title short, clear, and motivating\n- Rewrite the goals into concise goal statements\n- Do not add explanations\n\nReturn JSON in this exact shape:\n{ "title": "...", "goals": ["...", "..."] }`,
+          content: `User input: ${trimmedInput}\n\nCreate:\n- a concise, compelling title\n- 3 to 5 concrete goals\n\nRules:\n- CRITICAL: The title and goals MUST be in the same language as the user input. If the input is in Spanish, output Spanish. If English, output English.\n- Keep the title short, clear, and motivating\n- Rewrite the goals into concise goal statements\n- Do not add explanations\n\nReturn JSON in this exact shape:\n{ "title": "...", "goals": ["...", "..."] }`,
         },
       ],
       response_format: { type: "json_object" },
