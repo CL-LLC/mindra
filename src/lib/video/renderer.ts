@@ -273,7 +273,7 @@ export function generateAffirmationManifestFromNormalized(
       affirmation: scene.affirmation,
       startTime: currentTime,
       endTime: currentTime + scene.duration,
-      position: 'center', // Default position for normalized storyboards
+      position: 'bottom', // Default to bottom subtitle-like position
     };
     currentTime += scene.duration;
     return affirmationScene;

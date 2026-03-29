@@ -191,7 +191,7 @@ export function MindMoviePlayer({
   const positionClasses = {
     center: 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center',
     top: 'top-8 left-1/2 -translate-x-1/2 text-center',
-    bottom: 'bottom-20 left-1/2 -translate-x-1/2 text-center',
+    bottom: 'bottom-24 left-1/2 -translate-x-1/2 text-center', // Above controls
   };
 
   return (
@@ -221,8 +221,8 @@ export function MindMoviePlayer({
           <div
             className={`absolute ${positionClasses[affirmationPosition]} z-20 pointer-events-none`}
           >
-            <div className="bg-black/60 backdrop-blur-sm px-6 py-3 rounded-xl max-w-[80%]">
-              <p className="text-white text-xl md:text-2xl font-semibold text-shadow-lg">
+            <div className="bg-black/70 backdrop-blur-sm px-6 py-3 rounded-lg max-w-[85%]">
+              <p className="text-white text-lg md:text-xl font-medium leading-relaxed text-shadow-lg overflow-hidden max-h-[4.5em]" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
                 {currentAffirmation}
               </p>
             </div>
