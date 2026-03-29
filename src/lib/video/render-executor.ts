@@ -237,10 +237,9 @@ async function generateSyntheticKaleidoscopeClip(params: {
 
   // Create a synthetic kaleidoscope-style pattern using FFmpeg's geq filter
   // This generates a colorful, shifting geometric pattern
-  const kaleidoscopeFilter = `geq=
-r='128+100*sin(PI*2*t/6+X/40+Y/40)+50*cos(PI*2*t/4-X/30)':
-g='128+100*cos(PI*2*t/5+X/35+Y/45)+50*sin(PI*2*t/7-Y/35)':
-b='128+80*sin(PI*2*t/8+X/50-Y/30)+40*cos(PI*2*t/6+X/45+Y/35)'`.replace(/\n/g, '');
+  // Note: Using N (frame number) instead of t (time) to avoid FFmpeg expression parser issues
+  // where 't/' after multiplication operators is misinterpreted as a function call
+  const kaleidoscopeFilter = `geq=r='128+100*sin(N/180+X/40+Y/40)+50*cos(N/120-X/30)':g='128+100*cos(N/150+X/35+Y/45)+50*sin(N/210-Y/35)':b='128+80*sin(N/240+X/50-Y/30)+40*cos(N/180+X/45+Y/35)'`;
 
   const cmd = [
     'ffmpeg -y',
