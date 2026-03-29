@@ -6,6 +6,7 @@ import path from 'path';
 import os from 'os';
 import OpenAI from 'openai';
 import { getMusicAsset, resolveMusicAssetPath } from './music-registry';
+import { selectAffirmationPair } from './pair-playback';
 
 const execAsync = promisify(exec);
 const PYTHON = process.env.PYTHON || 'python3';
@@ -511,34 +512,100 @@ async function mixOptionalAudio(params: {
 }
 
 async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string): Promise<Array<{ path: string; start: number; duration: number; clipDuration: number; repeat: boolean; sourceType: 'recorded' | 'tts' }> | undefined> {
+  // Extract unique affirmations from scenes to build the pair-playback audio strategy
+  const affirmations = [...new Set(scenes.map(s => s.affirmation.trim()).filter(Boolean))];
+  if (affirmations.length === 0) return undefined;
+
+  const totalDuration = scenes.reduce((sum, s) => sum + s.duration, 0);
+  if (totalDuration <= 0) return undefined;
+
+  // Select the affirmation pair using the same rotation logic as playback
+  const { pair } = selectAffirmationPair(affirmations);
+  const [affirmationA, affirmationB] = pair;
+
+  // Configuration matching pair-playback.ts
+  const DISPLAY_DURATION = 8; // seconds per affirmation display
+  const GAP_DURATION = 2; // seconds between repeats
+  const CYCLE_DURATION = DISPLAY_DURATION + GAP_DURATION;
+  const midpoint = totalDuration / 2;
+
+  // Build a map of affirmation text -> first scene that contains it (for audio source)
+  const affirmationToScene = new Map<string, RenderScene>();
+  for (const scene of scenes) {
+    const text = scene.affirmation.trim();
+    if (text && !affirmationToScene.has(text)) {
+      affirmationToScene.set(text, scene);
+    }
+  }
+
   const tracks: Array<{ path: string; start: number; duration: number; clipDuration: number; repeat: boolean; sourceType: 'recorded' | 'tts' }> = [];
-  let start = 0;
 
-  for (let i = 0; i < scenes.length; i++) {
-    const scene = scenes[i];
-    const affirmation = scene.affirmation.trim();
-    if (!affirmation) {
-      start += scene.duration;
-      continue;
+  // Resolve audio sources for the pair
+  const sourceA = affirmationToScene.get(affirmationA);
+  const sourceB = affirmationToScene.get(affirmationB);
+
+  let audioPathA: string | undefined;
+  let audioPathB: string | undefined;
+  let sourceTypeA: 'recorded' | 'tts' = 'tts';
+  let sourceTypeB: 'recorded' | 'tts' = 'tts';
+  let clipDurationA = 0;
+  let clipDurationB = 0;
+
+  // Get audio for affirmation A
+  if (sourceA) {
+    const narration = await resolveNarrationSource(sourceA, tempDir, 0, affirmationA);
+    if (narration) {
+      audioPathA = narration.path;
+      sourceTypeA = narration.sourceType;
+      clipDurationA = await getMediaDurationSeconds(audioPathA);
     }
+  }
 
-    try {
-      const narration = await resolveNarrationSource(scene, tempDir, i, affirmation);
-      if (!narration) {
-        start += scene.duration;
-        continue;
-      }
-
-      const duration = scene.duration;
-      const repeat = false; // No repeat - each affirmation plays once per scene
-      const clipDuration = await getMediaDurationSeconds(narration.path);
-
-      tracks.push({ path: narration.path, start, duration, clipDuration, repeat, sourceType: narration.sourceType });
-    } catch (error) {
-      console.warn(`Scene narration failed for scene ${i + 1}; continuing without it.`, error);
+  // Get audio for affirmation B (may be same as A if only one unique affirmation)
+  if (affirmationB !== affirmationA && sourceB) {
+    const narration = await resolveNarrationSource(sourceB, tempDir, 1, affirmationB);
+    if (narration) {
+      audioPathB = narration.path;
+      sourceTypeB = narration.sourceType;
+      clipDurationB = await getMediaDurationSeconds(audioPathB);
     }
+  } else if (affirmationB === affirmationA) {
+    // Same affirmation for both halves
+    audioPathB = audioPathA;
+    sourceTypeB = sourceTypeA;
+    clipDurationB = clipDurationA;
+  }
 
-    start += scene.duration;
+  // First half: Affirmation A repeats
+  if (audioPathA && clipDurationA > 0) {
+    let currentTime = 0;
+    while (currentTime + DISPLAY_DURATION <= midpoint) {
+      tracks.push({
+        path: audioPathA,
+        start: currentTime,
+        duration: DISPLAY_DURATION,
+        clipDuration: clipDurationA,
+        repeat: false, // Each placement is a single play
+        sourceType: sourceTypeA,
+      });
+      currentTime += CYCLE_DURATION;
+    }
+  }
+
+  // Second half: Affirmation B repeats
+  if (audioPathB && clipDurationB > 0) {
+    let currentTime = midpoint;
+    while (currentTime + DISPLAY_DURATION <= totalDuration) {
+      tracks.push({
+        path: audioPathB,
+        start: currentTime,
+        duration: DISPLAY_DURATION,
+        clipDuration: clipDurationB,
+        repeat: false, // Each placement is a single play
+        sourceType: sourceTypeB,
+      });
+      currentTime += CYCLE_DURATION;
+    }
   }
 
   return tracks.length ? tracks : undefined;
