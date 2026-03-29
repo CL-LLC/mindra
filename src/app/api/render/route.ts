@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
           narrationAudioDataUrl: recording?.audioDataUrl,
           narrationMimeType: recording?.mimeType,
           narrationDurationMs: recording?.durationMs,
+          language: movie.language,
         };
       });
 
