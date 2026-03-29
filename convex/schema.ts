@@ -53,6 +53,8 @@ export default defineSchema({
     duration: v.number(),
     musicTrack: v.optional(v.string()),
     effectivenessScore: v.optional(v.number()),
+    // Playback-layer manifest for affirmation overlay (optional, added for balanced architecture)
+    affirmationManifest: v.optional(v.any()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
