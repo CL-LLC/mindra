@@ -8,6 +8,7 @@ function withUserDefaults<T extends Record<string, any> | null>(user: T) {
   return {
     ...user,
     timezone: user.timezone ?? "America/Bogota",
+    preferredLanguage: user.preferredLanguage ?? null,
     subscription: user.subscription ?? "free",
     xp: user.xp ?? 0,
     level: user.level ?? 1,
@@ -97,6 +98,7 @@ export const updateSettings = mutation({
     timezone: v.optional(v.string()),
     morningReminderTime: v.optional(v.string()),
     eveningReminderTime: v.optional(v.string()),
+    preferredLanguage: v.optional(v.union(v.literal("en"), v.literal("es"))),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
@@ -114,8 +116,33 @@ export const updateSettings = mutation({
     if (args.timezone) updates.timezone = args.timezone;
     if (args.morningReminderTime) updates.morningReminderTime = args.morningReminderTime;
     if (args.eveningReminderTime) updates.eveningReminderTime = args.eveningReminderTime;
+    if (args.preferredLanguage !== undefined) updates.preferredLanguage = args.preferredLanguage;
 
     await ctx.db.patch(userId, updates);
+    return true;
+  },
+});
+
+export const updateLanguage = mutation({
+  args: {
+    language: v.union(v.literal("en"), v.literal("es")),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
+      throw new Error("Unauthorized: Please sign in");
+    }
+
+    const existing = await ctx.db.get(userId);
+    if (!existing) {
+      throw new Error("User not found");
+    }
+
+    await ctx.db.patch(userId, {
+      preferredLanguage: args.language,
+      updatedAt: Date.now(),
+    });
     return true;
   },
 });
