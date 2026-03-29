@@ -144,7 +144,10 @@ export default function CreatePage() {
     
     setIsGeneratingDraft(true);
     try {
-      const draft = await proposeCreateDraft({ input: intake.trim() });
+      const draft = await proposeCreateDraft({ 
+        input: intake.trim(),
+        preferredLanguage: user?.preferredLanguage as 'en' | 'es' | undefined,
+      });
       setTitle(draft.title);
       setGoalsText(draft.goals.join('\n'));
       setDraftLanguage(draft.language);
@@ -162,7 +165,10 @@ export default function CreatePage() {
     setIsRegeneratingGoals(true);
     setError(null);
     try {
-      const draft = await proposeCreateDraft({ input: intake.trim() });
+      const draft = await proposeCreateDraft({ 
+        input: intake.trim(),
+        preferredLanguage: user?.preferredLanguage as 'en' | 'es' | undefined,
+      });
       setTitle(draft.title);
       setGoalsText(draft.goals.join('\n'));
       setDraftLanguage(draft.language);
