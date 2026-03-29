@@ -157,36 +157,7 @@ export default function WatchPage() {
           )}
         </div>
 
-        {movie.storyboard && movie.storyboard.length > 0 && (
-          <div>
-            <h2 className="text-xl font-semibold text-white mb-4">Storyboard</h2>
-            <div className="space-y-3">
-              {normalizeStoryboard(movie.storyboard).map((scene: any, index: number) => {
-                const copy = getSceneCopy(scene, index);
-                return (
-                  <div
-                    key={index}
-                    className="bg-slate-800 rounded-lg p-4 border border-slate-700"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="flex-shrink-0 w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold">
-                        {index + 1}
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="text-white font-medium mb-1">
-                          {copy.title}
-                        </h3>
-                        <p className="text-slate-400 text-sm">
-                          {copy.description}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        {/* Storyboard section removed - affirmation overlay in player is now the only display mechanism */}
       </div>
     </div>
   );

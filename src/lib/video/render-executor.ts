@@ -72,10 +72,9 @@ export async function renderVideo(
             width: opts.width,
             height: opts.height,
           });
-      const sceneOverlayText = scene.affirmation?.trim() || scene.title?.trim() || scene.description?.trim() || `Scene ${i + 1}`;
-
+      // No text overlay on frame - affirmation overlay is handled by MindMoviePlayer
       await renderSceneFrame(frameFile, {
-        text: sceneOverlayText,
+        text: '', // Clear text overlay - affirmations shown via playback overlay only
         backgroundColor: bgColor,
         backgroundImagePath: generatedImagePath,
         width: opts.width,
@@ -530,7 +529,7 @@ async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string)
       }
 
       const duration = scene.duration;
-      const repeat = narration.sourceType === 'tts' || narration.sourceType === 'recorded';
+      const repeat = false; // No repeat - each affirmation plays once per scene
       const clipDuration = await getMediaDurationSeconds(narration.path);
 
       tracks.push({ path: narration.path, start, duration, clipDuration, repeat, sourceType: narration.sourceType });

@@ -32,7 +32,7 @@ export default function CreatePage() {
 
   const { t, language: uiLanguage } = useLanguage();
 
-  const [mode, setMode] = useState<'intake' | 'review' | 'manual'>('intake');
+  const [mode, setMode] = useState<'intake' | 'review'>('intake');
   const [intake, setIntake] = useState('');
   const [title, setTitle] = useState('');
   const [goalsText, setGoalsText] = useState('');
@@ -148,8 +148,7 @@ export default function CreatePage() {
       setMode('review');
     } catch (err: any) {
       console.error('Draft generation failed:', err);
-      setError(err?.message || 'AI draft failed. Use manual entry below.');
-      setMode('manual');
+      setError(err?.message || 'AI draft failed. Please try again.');
     } finally {
       setIsGeneratingDraft(false);
     }
@@ -213,12 +212,11 @@ export default function CreatePage() {
                   {isGeneratingDraft ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                   {isGeneratingDraft ? t('create.generatingDraft') : t('create.continue')}
                 </button>
-                <button type="button" onClick={() => setMode('manual')} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">{t('create.useManualEntry')}</button>
               </div>
             </form>
           )}
 
-          {(mode === 'review' || mode === 'manual') && (
+          {mode === 'review' && (
             <div className="space-y-5 bg-white/5 border border-white/10 rounded-xl p-6">
               <div><h2 className="text-xl font-semibold mb-1">{t('create.reviewDraft')}</h2><p className="text-sm text-white/50">{t('create.reviewDesc')}</p></div>
               {success && <p className="text-green-400 text-sm">{success}</p>}
@@ -252,8 +250,6 @@ export default function CreatePage() {
               </div>
               <div className="flex flex-wrap gap-3">
                 <button type="button" onClick={() => void runGeneration(title, goals)} disabled={isSubmitting || goals.length === 0} className="bg-primary-500 hover:bg-primary-600 disabled:opacity-60 rounded-lg py-3 px-5 font-semibold flex items-center gap-2">{isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}{t('create.createMindMovie')}</button>
-                {mode === 'review' && <button type="button" onClick={() => setMode('manual')} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">{t('create.useManualEntry')}</button>}
-                {mode === 'manual' && <button type="button" onClick={() => { if (intake.trim()) setMode('review'); }} className="rounded-lg py-3 px-5 font-semibold border border-white/15 text-white/80 hover:text-white hover:border-white/30">{t('create.skipToManual')}</button>}
               </div>
             </div>
           )}
@@ -261,7 +257,7 @@ export default function CreatePage() {
 
         <aside className="space-y-4">
           <div className="bg-white/5 border border-white/10 rounded-xl p-5"><h3 className="font-semibold mb-3">{t('create.progress')}</h3><ul className="space-y-2">{STEPS.map((step, i) => { const done = i < stepIndex; const active = i === stepIndex; return <li key={i} className="flex items-center gap-2 text-sm">{done ? <CheckCircle2 className="w-4 h-4 text-green-400" /> : active ? <Loader2 className="w-4 h-4 text-primary-400 animate-spin" /> : <span className="w-4 h-4 rounded-full border border-white/20" />}<span className={done || active ? 'text-white' : 'text-white/50'}>{step}</span></li>; })}</ul></div>
-          <div className="bg-white/5 border border-white/10 rounded-xl p-5"><h3 className="font-semibold mb-3">{t('create.notes')}</h3><p className="text-sm text-white/60">One line is enough. AI will generate a title and goals you can edit, add to, or regenerate.</p></div>
+          <div className="bg-white/5 border border-white/10 rounded-xl p-5"><h3 className="font-semibold mb-3">{t('create.notes')}</h3><p className="text-sm text-white/60">{t('create.oneLineIsEnough')}</p></div>
         </aside>
       </main>
     </div>
