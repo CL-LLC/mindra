@@ -68,53 +68,56 @@ export function selectAffirmationPair(
  * Generate pair-playback manifest with consecutive repeats
  * 
  * Strategy:
- * - Divide video into two halves
- * - First half: Affirmation A repeats with gaps
- * - Second half: Affirmation B repeats with gaps
- * - Gap between repeats: ~2 seconds of no text
- * - Each affirmation display: ~8 seconds
+ * - NO affirmations during intro/outro
+ * - Divide main content into two halves
+ * - First half: Affirmation A displayed persistently (no gaps)
+ * - Second half: Affirmation B displayed persistently (no gaps)
+ * - NO affirmations during outro
  */
 export function generatePairPlaybackManifest(
   affirmations: string[],
   totalDuration: number,
-  rotationIndex?: number
+  rotationIndex?: number,
+  introDuration: number = 15,
+  outroDuration: number = 15
 ): PairPlaybackManifest {
   const { pair, pairIndex } = selectAffirmationPair(affirmations, rotationIndex);
   const [affirmationA, affirmationB] = pair;
   
   const scenes: PairPlaybackScene[] = [];
   
-  // Configuration
-  const DISPLAY_DURATION = 8; // seconds per affirmation display
-  const GAP_DURATION = 2; // seconds between repeats
-  const CYCLE_DURATION = DISPLAY_DURATION + GAP_DURATION;
+  // Calculate main content duration (excluding intro/outro)
+  const mainDuration = totalDuration - introDuration - outroDuration;
   
-  // Divide timeline in half
-  const midpoint = totalDuration / 2;
-  
-  // First half: Affirmation A repeats
-  let currentTime = 0;
-  while (currentTime + DISPLAY_DURATION <= midpoint) {
-    scenes.push({
-      affirmation: affirmationA,
-      startTime: currentTime,
-      endTime: currentTime + DISPLAY_DURATION,
-      position: 'bottom',
-    });
-    currentTime += CYCLE_DURATION;
+  // If no main content or negative, return empty manifest
+  if (mainDuration <= 0) {
+    return {
+      version: 2,
+      scenes: [],
+      totalDuration,
+      pairIndex,
+      affirmations: pair,
+    };
   }
   
-  // Second half: Affirmation B repeats
-  currentTime = midpoint;
-  while (currentTime + DISPLAY_DURATION <= totalDuration) {
-    scenes.push({
-      affirmation: affirmationB,
-      startTime: currentTime,
-      endTime: currentTime + DISPLAY_DURATION,
-      position: 'bottom',
-    });
-    currentTime += CYCLE_DURATION;
-  }
+  // Divide main content into two halves
+  const midpoint = introDuration + (mainDuration / 2);
+  
+  // First half: Affirmation A persistent (from intro end to midpoint)
+  scenes.push({
+    affirmation: affirmationA,
+    startTime: introDuration,
+    endTime: midpoint,
+    position: 'bottom',
+  });
+  
+  // Second half: Affirmation B persistent (from midpoint to outro start)
+  scenes.push({
+    affirmation: affirmationB,
+    startTime: midpoint,
+    endTime: totalDuration - outroDuration,
+    position: 'bottom',
+  });
   
   return {
     version: 2,
