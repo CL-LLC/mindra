@@ -1,5 +1,18 @@
 // Video Rendering Pipeline for Mindra
 // Uses Editly + FFmpeg to create mind movies
+//
+// ARCHITECTURE (Balanced mode):
+// - Base video: Scene visuals only, NO burned-in affirmation text
+// - Affirmation manifest: Separate timing data for playback-layer overlay
+// - This allows changing affirmations without re-rendering video
+
+// ============================================
+// INTRO/OUTRO TIMING CONSTANTS
+// ============================================
+// Kaleidoscope intro/outro are visual-only sections
+// Affirmations should NOT appear during these periods
+export const INTRO_DURATION_SECONDS = 15;
+export const OUTRO_DURATION_SECONDS = 15;
 
 export interface StoryboardScene {
   affirmation: string;
@@ -22,10 +35,14 @@ export interface AffirmationScene {
   position: 'center' | 'top' | 'bottom';
 }
 
+// Affirmation playback manifest for overlay delivery
+// Stored alongside video, used by player to show timed text
 export interface AffirmationManifest {
   version: 1;
   scenes: AffirmationScene[];
   totalDuration: number;
+  introDuration?: number;  // Seconds to skip at start (kaleidoscope intro)
+  outroDuration?: number;  // Seconds to skip at end (kaleidoscope outro)
 }
 
 export interface VideoConfig {
@@ -233,24 +250,38 @@ export function generateBaseEditlyConfig(
 /**
  * Generate affirmation manifest from storyboard
  * This contains timing data for playback-layer overlay
+ * 
+ * TIMING: Affirmations start AFTER intro and end BEFORE outro
+ * - Intro/outro are visual-only kaleidoscope sections
+ * - Affirmation overlay should only appear during main content
  */
-export function generateAffirmationManifest(scenes: StoryboardScene[]): AffirmationManifest {
+export function generateAffirmationManifest(
+  scenes: StoryboardScene[],
+  introDuration: number = INTRO_DURATION_SECONDS,
+  outroDuration: number = OUTRO_DURATION_SECONDS
+): AffirmationManifest {
   let currentTime = 0;
+
   const manifestScenes: AffirmationScene[] = scenes.map((scene) => {
-    const affirmationScene: AffirmationScene = {
+    // Offset startTime by introDuration so affirmations don't appear during intro
+    const startTime = introDuration + currentTime;
+    const endTime = introDuration + currentTime + scene.duration;
+    currentTime += scene.duration;
+
+    return {
       affirmation: scene.affirmation,
-      startTime: currentTime,
-      endTime: currentTime + scene.duration,
+      startTime,
+      endTime,
       position: scene.textOverlay?.position ?? 'center',
     };
-    currentTime += scene.duration;
-    return affirmationScene;
   });
 
   return {
     version: 1,
     scenes: manifestScenes,
-    totalDuration: currentTime,
+    totalDuration: introDuration + currentTime + outroDuration,
+    introDuration,
+    outroDuration,
   };
 }
 
@@ -288,7 +319,8 @@ export function generateAffirmationManifestFromNormalized(
 
 /**
  * Update affirmation manifest with new affirmations
- * This allows changing text without re-rendering video
+ * Preserves timing and positions - only changes text
+ * This allows changing affirmations WITHOUT re-rendering video
  */
 export function updateAffirmationManifest(
   existingManifest: AffirmationManifest,
