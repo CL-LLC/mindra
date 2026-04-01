@@ -42,7 +42,17 @@ export function MindMoviePlayer({
   const pairPlaybackManifest = useMemo<PairPlaybackManifest | null>(() => {
     const totalDuration = propDuration || videoDuration;
     if (affirmations && affirmations.length > 0 && totalDuration > 0) {
-      return generatePairPlaybackManifest(affirmations, totalDuration);
+      // Use default kaleidoscope intro/outro durations (15s each)
+      // These should not show affirmations
+      const INTRO_DURATION = 15;
+      const OUTRO_DURATION = 15;
+      return generatePairPlaybackManifest(
+        affirmations, 
+        totalDuration, 
+        undefined, 
+        INTRO_DURATION, 
+        OUTRO_DURATION
+      );
     }
     return null;
   }, [affirmations, propDuration, videoDuration]);

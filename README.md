@@ -55,7 +55,7 @@ mindra/
 |-----------|--------|-----------|
 | **Backend** | Convex ✅ | Real-time, serverless, perfect for tracking |
 | **Frontend** | Next.js + React ✅ | Standard, Convex-friendly |
-| **Auth** | Clerk (recommended) | Easy Convex integration |
+| **Auth** | Convex native auth | Google OAuth + email magic link |
 | **Video Pipeline** | Editly + FFmpeg | Cost-effective, controllable |
 | **Images** | Local SDXL (Mac Studio) | **FREE**, fast, private |
 | **Video Clips** | Stock (Pexels) + user uploads | **FREE**, reliable |
@@ -190,7 +190,7 @@ export const checkEngagement = internalAction({
 ## 🎯 MVP Checklist
 
 ### Phase 1: Foundation (Week 1-2)
-- [ ] Convex schema + auth (Clerk)
+- [x] Convex schema + auth (Convex native auth)
 - [ ] Landing page + signup
 - [ ] Basic dashboard
 
