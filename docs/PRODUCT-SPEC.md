@@ -218,7 +218,7 @@ Monthly (Day 30):
 | **Frontend** | Next.js 14 + React | UI framework |
 | **Styling** | Tailwind CSS | Mobile-first responsive design |
 | **Backend** | Convex Pro | Real-time database, functions, auth |
-| **Auth** | Clerk | User authentication |
+| **Auth** | Convex native auth | User authentication |
 | **AI - Text** | GPT-4 / GLM-5 | Clarity Engine, affirmations |
 | **AI - Voice** | Whisper (OpenAI) | Voice-to-text for goal input |
 | **AI - Images** | DALL-E 3 | Generate visualization images |
@@ -485,7 +485,7 @@ Monthly (Day 30):
 ## 13. Roadmap
 
 ### Phase 0: Foundation (Week 1)
-- Project setup (Next.js, Convex, Clerk)
+- Project setup (Next.js, Convex, Convex Auth)
 - Database schema
 - Basic auth flow
 
