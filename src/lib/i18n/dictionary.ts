@@ -150,6 +150,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "movie.unarchive": "Unarchive",
     "movie.loading": "Loading…",
     "movie.backToDetail": "Back to detail",
+    "movie.legacyVideoBody":
+      "This video was rendered with an older setup and is not available on this deployment. Open the details page and render again.",
+    "movie.renderEnqueueFailed": "Could not start render. Check render service configuration.",
 
     // Status labels
     "status.draft": "Draft",
@@ -320,6 +323,9 @@ export const translations: Record<Language, Record<string, string>> = {
     "movie.unarchive": "Desarchivar",
     "movie.loading": "Cargando…",
     "movie.backToDetail": "Volver al detalle",
+    "movie.legacyVideoBody":
+      "Este video se renderizó con una configuración anterior y no está disponible en este entorno. Abre la página de detalles y vuelve a renderizar.",
+    "movie.renderEnqueueFailed": "No se pudo iniciar el render. Revisa la configuración del servicio de render.",
 
     // Status labels
     "status.draft": "Borrador",

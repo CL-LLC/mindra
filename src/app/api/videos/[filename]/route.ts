@@ -11,6 +11,11 @@ export async function GET(
   { params }: { params: Promise<{ filename: string }> }
 ) {
   try {
+    // On Vercel, finalized videos live on R2; local files are dev-only unless explicitly enabled.
+    if (process.env.VERCEL === '1' && process.env.ENABLE_LOCAL_VIDEO_API !== 'true') {
+      return NextResponse.json({ error: 'Video not found' }, { status: 404 });
+    }
+
     const { filename } = await params;
     const safe = safeFilename(filename);
 
