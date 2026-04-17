@@ -38,7 +38,7 @@ cd /Users/lucho/.openclaw/workspace/projects/ai-tools/mindra && npx convex dev &
 | File | Purpose |
 |------|---------|
 | `convex/aiFunctions.ts` | OpenAI integration functions |
-| `.env` | Environment variables (Clerk, Convex, OpenAI) |
+| `.env` | Environment variables (Convex Auth, Convex, OpenAI) |
 | `convex/schema.ts` | Database schema with authTables |
 | `src/app/` | Next.js pages |
 | `docs/OPENCLAW_CONFIG.md` | OpenClaw model configuration guide |
@@ -57,7 +57,7 @@ node test-full-integration.js
 
 ## **Status**
 
-- ✅ Clerk authentication configured
+- ✅ Convex native authentication configured
 - ✅ Convex OAuth with authTables
 - ✅ OpenAI API integration
 - ✅ Storyboard generation

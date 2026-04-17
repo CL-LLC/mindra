@@ -16,6 +16,7 @@ import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as mindMovies from "../mindMovies.js";
 import type * as notifications from "../notifications.js";
+import type * as renderWebhook from "../renderWebhook.js";
 import type * as streaks from "../streaks.js";
 import type * as tracking from "../tracking.js";
 import type * as users from "../users.js";
@@ -35,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   mindMovies: typeof mindMovies;
   notifications: typeof notifications;
+  renderWebhook: typeof renderWebhook;
   streaks: typeof streaks;
   tracking: typeof tracking;
   users: typeof users;

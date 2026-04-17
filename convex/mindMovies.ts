@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
@@ -37,7 +37,133 @@ export const create = mutation({ args: { title: v.string(), language: v.optional
 
 export const update = mutation({ args: { id: v.id("mindMovies"), title: v.string(), language: v.optional(v.union(v.literal('en'), v.literal('es'))), goals: v.array(v.string()), affirmations: v.array(v.string()), storyboard: v.any(), assets: v.array(v.any()), duration: v.number() }, returns: v.boolean(), handler: async (ctx, args) => { const userId = await requireUserId(ctx); const mindMovie = await ctx.db.get(args.id); if (!mindMovie || mindMovie.userId !== userId) throw new Error("Mind movie not found or access denied"); await ctx.db.patch(args.id, { title: args.title, language: args.language, goals: args.goals, affirmations: args.affirmations, storyboard: args.storyboard, assets: args.assets, duration: args.duration, status: "draft", videoUrl: undefined, videoStorageId: undefined, thumbnailUrl: undefined, updatedAt: Date.now() }); return true; } });
 
-export const updateStatus = mutation({ args: { id: v.id("mindMovies"), status: statusValidator }, returns: v.boolean(), handler: async (ctx, args) => { const userId = await requireUserId(ctx); const mindMovie = await ctx.db.get(args.id); if (!mindMovie || mindMovie.userId !== userId) throw new Error("Mind movie not found or access denied"); if (args.status === "archived" && mindMovie.status === "rendering") throw new Error("This Mind Movie is currently rendering. Wait for rendering to finish before archiving."); await ctx.db.patch(args.id, { status: args.status, updatedAt: Date.now() }); return true; } });
+export const updateStatus = mutation({
+  args: { id: v.id("mindMovies"), status: statusValidator },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const mindMovie = await ctx.db.get(args.id);
+    if (!mindMovie || mindMovie.userId !== userId) throw new Error("Mind movie not found or access denied");
+    if (args.status === "archived" && mindMovie.status === "rendering") {
+      throw new Error("This Mind Movie is currently rendering. Wait for rendering to finish before archiving.");
+    }
+    if (args.status === "rendering") {
+      await ctx.db.patch(args.id, {
+        status: args.status,
+        videoUrl: undefined,
+        affirmationManifest: undefined,
+        updatedAt: Date.now(),
+      });
+    } else {
+      await ctx.db.patch(args.id, { status: args.status, updatedAt: Date.now() });
+    }
+    return true;
+  },
+});
+
+/** Start a remote render job (sets job id + timestamp; used before enqueueing the worker). */
+export const beginRemoteRender = mutation({
+  args: { id: v.id("mindMovies"), renderJobId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const mindMovie = await ctx.db.get(args.id);
+    if (!mindMovie || mindMovie.userId !== userId) throw new Error("Mind movie not found or access denied");
+    if (mindMovie.status === "rendering") throw new Error("This Mind Movie is already rendering.");
+    if (mindMovie.status === "archived") throw new Error("Unarchive this Mind Movie before rendering.");
+    await ctx.db.patch(args.id, {
+      status: "rendering",
+      renderJobId: args.renderJobId,
+      renderStartedAt: Date.now(),
+      renderError: undefined,
+      videoUrl: undefined,
+      affirmationManifest: undefined,
+      updatedAt: Date.now(),
+    });
+    return true;
+  },
+});
+
+/** If the worker enqueue HTTP call fails, move back to draft and surface an error. */
+export const revertRenderingAfterEnqueueFailure = mutation({
+  args: { id: v.id("mindMovies") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const mindMovie = await ctx.db.get(args.id);
+    if (!mindMovie || mindMovie.userId !== userId) throw new Error("Mind movie not found or access denied");
+    if (mindMovie.status !== "rendering") return true;
+    await ctx.db.patch(args.id, {
+      status: "draft",
+      renderJobId: undefined,
+      renderStartedAt: undefined,
+      renderError: "Could not reach the render service. Try again.",
+      updatedAt: Date.now(),
+    });
+    return true;
+  },
+});
+
+export const completeRenderFromWorker = internalMutation({
+  args: {
+    mindMovieId: v.id("mindMovies"),
+    videoUrl: v.string(),
+    affirmationManifest: v.optional(v.any()),
+    renderJobId: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const mindMovie = await ctx.db.get(args.mindMovieId);
+    if (!mindMovie) return null;
+    if (mindMovie.status !== "rendering") return null;
+    if (
+      args.renderJobId !== undefined &&
+      mindMovie.renderJobId !== undefined &&
+      args.renderJobId !== mindMovie.renderJobId
+    ) {
+      return null;
+    }
+    await ctx.db.patch(args.mindMovieId, {
+      videoUrl: args.videoUrl,
+      status: "ready",
+      affirmationManifest: args.affirmationManifest,
+      renderError: undefined,
+      renderJobId: undefined,
+      renderStartedAt: undefined,
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const failRenderFromWorker = internalMutation({
+  args: {
+    mindMovieId: v.id("mindMovies"),
+    renderJobId: v.optional(v.string()),
+    message: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const mindMovie = await ctx.db.get(args.mindMovieId);
+    if (!mindMovie) return null;
+    if (mindMovie.status !== "rendering") return null;
+    if (
+      args.renderJobId !== undefined &&
+      mindMovie.renderJobId !== undefined &&
+      args.renderJobId !== mindMovie.renderJobId
+    ) {
+      return null;
+    }
+    await ctx.db.patch(args.mindMovieId, {
+      status: "draft",
+      renderError: args.message,
+      renderJobId: undefined,
+      renderStartedAt: undefined,
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
 
 export const upsertVoiceRecording = mutation({
   args: { id: v.id("mindMovies"), recording: voiceRecordingValidator },

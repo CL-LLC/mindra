@@ -8,6 +8,7 @@ import { Sparkles, Plus, Play, Clock, Eye, Pencil, Archive, ArchiveRestore, X } 
 import { api } from '../../../convex/_generated/api';
 import { useLanguage } from '@/lib/hooks';
 import { MindMoviePlayer } from '@/components';
+import { canPlayVideoUrlClient } from '@/lib/video/video-url';
 
 // Type for mind movie with optional affirmation manifest
 interface MindMovie {
@@ -178,7 +179,7 @@ export default function DashboardPage() {
                       <Eye className="w-3 h-3" />
                       {t('dashboard.view')}
                     </Link>
-                    {movie.videoUrl && (
+                    {movie.videoUrl && canPlayVideoUrlClient(movie.videoUrl) && (
                       <button
                         onClick={() => setPlayingMovie(movie as MindMovie)}
                         className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded-lg transition-colors"
@@ -260,7 +261,7 @@ export default function DashboardPage() {
       </main>
 
       {/* Video Player Modal */}
-      {playingMovie && playingMovie.videoUrl && (
+      {playingMovie && playingMovie.videoUrl && canPlayVideoUrlClient(playingMovie.videoUrl) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="w-full max-w-4xl">
             <MindMoviePlayer

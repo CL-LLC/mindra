@@ -8,9 +8,11 @@ import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { MindMoviePlayer } from '../../../../components/MindMoviePlayer';
 import { ArrowLeft, Clock, Film, CheckCircle, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
-import { getSceneCopy, normalizeStoryboard } from '@/lib/mindmovie/storyboard';
+import { canPlayVideoUrlClient } from '@/lib/video/video-url';
+import { useLanguage } from '@/lib/hooks';
 
 export default function WatchPage() {
+  const { t } = useLanguage();
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -76,15 +78,20 @@ export default function WatchPage() {
     );
   }
 
-  const isReady = movie.status === 'ready' && Boolean(movie.videoUrl);
-  const canWatch = isReady;
-  const statusCopy = movie.status === 'ready'
-    ? 'This Mind Movie is ready to watch.'
-    : movie.status === 'rendering'
-      ? 'This Mind Movie is still rendering. Come back when processing finishes and the video URL is available.'
-      : movie.status === 'archived'
-        ? 'This Mind Movie is archived. Restore it from the details page before watching.'
-        : 'This Mind Movie is still a draft. Render it from the details page first.';
+  const hasVideo = Boolean(movie.videoUrl);
+  const playable = canPlayVideoUrlClient(movie.videoUrl);
+  const isReady = movie.status === 'ready' && hasVideo;
+  const legacyBlocked = isReady && !playable;
+  const canWatch = isReady && playable;
+  const statusCopy = legacyBlocked
+    ? t('movie.legacyVideoBody')
+    : movie.status === 'ready'
+      ? 'This Mind Movie is ready to watch.'
+      : movie.status === 'rendering'
+        ? 'This Mind Movie is still rendering. Come back when processing finishes and the video URL is available.'
+        : movie.status === 'archived'
+          ? 'This Mind Movie is archived. Restore it from the details page before watching.'
+          : 'This Mind Movie is still a draft. Render it from the details page first.';
 
   return (
     <div className="min-h-screen bg-slate-900 p-8">

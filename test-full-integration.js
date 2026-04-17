@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Test script for Convex OAuth + OpenAI integration
- * Tests that Clerk auth works and AI functions can call OpenAI
+ * Tests that Convex auth works and AI functions can call OpenAI
  */
 
 const fs = require('fs');
@@ -112,7 +112,7 @@ async function testOpenAIIntegration() {
     console.log('\n✅ Next steps:');
     console.log('   - The AI functions are ready in convex/aiFunctions.ts');
     console.log('   - You can test the full app at http://localhost:3000');
-    console.log('   - Clerk authentication is configured');
+    console.log('   - Convex authentication is configured');
     console.log('   - OpenAI is ready for mind movie generation');
     process.exit(0);
 

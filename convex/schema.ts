@@ -55,6 +55,10 @@ export default defineSchema({
     effectivenessScore: v.optional(v.number()),
     // Playback-layer manifest for affirmation overlay (optional, added for balanced architecture)
     affirmationManifest: v.optional(v.any()),
+    /** Idempotency for remote render pipeline (worker callback must match active job). */
+    renderJobId: v.optional(v.string()),
+    renderStartedAt: v.optional(v.number()),
+    renderError: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

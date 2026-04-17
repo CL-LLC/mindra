@@ -7,8 +7,8 @@ import { useConvexAuth, useMutation, useQuery } from 'convex/react';
 import { ArrowLeft, Play, Film, Loader2, Archive, ArchiveRestore, Mic, Square, RotateCcw, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { api } from '../../../../convex/_generated/api';
 import { Id } from '../../../../convex/_generated/dataModel';
-import { getSceneCopy, normalizeStoryboard } from '@/lib/mindmovie/storyboard';
 import { useLanguage } from '@/lib/hooks';
+import { canPlayVideoUrlClient } from '@/lib/video/video-url';
 
 type Recording = { affirmationIndex: number; recordedAt: number; mimeType: string; audioDataUrl: string; durationMs?: number };
 
@@ -90,7 +90,18 @@ export default function Page() {
   const renderMovie = async () => {
     if (!allRecorded) return setError(`${t('movie.recordAllAffirmations')} ${t('movie.missingCount')} ${missing.length} ${t('movie.more')}.`);
     setRendering(true); setError(null);
-    try { const res = await fetch('/api/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: movieId }) }); const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Render failed'); router.refresh(); }
+    try {
+      const res = await fetch('/api/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: movieId }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (res.status === 409) throw new Error(data.error || 'Already rendering');
+      if (res.status === 502) throw new Error(data.error || t('movie.renderEnqueueFailed'));
+      if (!res.ok) throw new Error(data.error || 'Render failed');
+      router.refresh();
+    }
     catch (e) { setError(e instanceof Error ? e.message : 'Render failed'); }
     finally { setRendering(false); }
   };
@@ -118,7 +129,7 @@ export default function Page() {
   if (!isLoading && !isAuthenticated) return <div className="min-h-screen bg-slate-900" />;
   if (movie === undefined) return <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">{t('movie.loading')}</div>;
   if (!movie) return <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">{t('movie.movieNotFound')}</div>;
-  const showWatch = movie.status === 'ready' && Boolean(movie.videoUrl);
+  const showWatch = movie.status === 'ready' && Boolean(movie.videoUrl) && canPlayVideoUrlClient(movie.videoUrl);
 
   return <div className="min-h-screen bg-slate-900 text-white p-8"><div className="max-w-5xl mx-auto space-y-6">
     <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -126,7 +137,7 @@ export default function Page() {
       <div className="flex gap-2 flex-wrap">
         {movie.status === 'archived' ? <button onClick={() => setArchived('ready')} className="px-4 py-2 rounded-lg bg-white/10 inline-flex items-center gap-2"><ArchiveRestore className="w-4 h-4" />{t('movie.unarchive')}</button> : <button onClick={() => setArchived('archived')} className="px-4 py-2 rounded-lg bg-white/10 inline-flex items-center gap-2"><Archive className="w-4 h-4" />{t('movie.archive')}</button>}
         {showWatch && <Link href={`/mind-movies/${movie._id}/watch`} className="px-4 py-2 rounded-lg bg-blue-600 inline-flex items-center gap-2"><Play className="w-4 h-4" />{t('movie.watchNow')}</Link>}
-        {movie.status !== 'rendering' && !movie.videoUrl && <button onClick={renderMovie} disabled={!allRecorded || rendering} className="px-4 py-2 rounded-lg bg-purple-600 disabled:bg-purple-600/50 inline-flex items-center gap-2"><Film className="w-4 h-4" />{rendering ? t('movie.rendering') : t('movie.renderVideo')}</button>}
+        {movie.status !== 'rendering' && (!movie.videoUrl || !canPlayVideoUrlClient(movie.videoUrl)) && <button onClick={renderMovie} disabled={!allRecorded || rendering} className="px-4 py-2 rounded-lg bg-purple-600 disabled:bg-purple-600/50 inline-flex items-center gap-2"><Film className="w-4 h-4" />{rendering ? t('movie.rendering') : t('movie.renderVideo')}</button>}
         {movie.status === 'rendering' && <span className="px-4 py-2 rounded-lg bg-yellow-600/30 text-yellow-300 inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />{t('status.rendering')}</span>}
       </div>
     </div>
@@ -134,6 +145,12 @@ export default function Page() {
     <div className={`rounded-lg border px-4 py-3 ${statusTone[movie.status]}`}>
       <div className="font-semibold capitalize">{getStatusLabel(movie.status)}</div>
       <div className="text-sm opacity-90">{!allRecorded ? `${t('movie.recordAllAffirmations')} ${t('movie.missingCount')} ${missing.length}.` : t('movie.allRecorded')}</div>
+      {movie.status === 'ready' && movie.videoUrl && !canPlayVideoUrlClient(movie.videoUrl) && (
+        <div className="text-sm mt-2 text-amber-200/90">{t('movie.legacyVideoBody')}</div>
+      )}
+      {movie.status === 'draft' && movie.renderError && (
+        <div className="text-sm mt-2 text-rose-200/90">{movie.renderError}</div>
+      )}
     </div>
 
     {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-200 flex items-start gap-2"><AlertCircle className="w-4 h-4 mt-0.5" /><span>{error}</span></div>}
