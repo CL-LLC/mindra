@@ -9,6 +9,7 @@ export { RenderContext } from "./render-context";
 export type { ResolvedRenderOptions } from "./render-context";
 import type { RenderPipeline } from "./types";
 import { V1Pipeline } from "./v1-pipeline";
+import { V2Pipeline } from "./v2-pipeline";
 
 let _cachedPipeline: RenderPipeline | undefined;
 
@@ -18,9 +19,9 @@ export function getPipeline(): RenderPipeline {
   const version = Number(process.env.MINDRA_PIPELINE_VERSION || "1");
 
   switch (version) {
-    // case 2: — future V2Pipeline import
-    //   _cachedPipeline = new V2Pipeline();
-    //   break;
+    case 2:
+      _cachedPipeline = new V2Pipeline();
+      break;
     default:
       _cachedPipeline = new V1Pipeline();
   }
