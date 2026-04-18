@@ -107,7 +107,10 @@ export async function POST(request: NextRequest) {
           } catch {
             if (errText) message = errText.slice(0, 200);
           }
-          await convex.mutation(api.mindMovies.revertRenderingAfterEnqueueFailure, { id });
+          await convex.mutation(api.mindMovies.updateVideo, {
+            id,
+            status: 'draft',
+          });
           return NextResponse.json({ error: message }, { status: 502 });
         }
 
@@ -115,9 +118,20 @@ export async function POST(request: NextRequest) {
           { success: true, accepted: true, renderJobId, message: 'Render queued' },
           { status: 202 }
         );
-      } catch {
-        await convex.mutation(api.mindMovies.revertRenderingAfterEnqueueFailure, { id });
-        return NextResponse.json({ error: 'Could not reach the render service.' }, { status: 502 });
+      } catch (workerError) {
+        await convex.mutation(api.mindMovies.updateVideo, {
+          id,
+          status: 'draft',
+        });
+        return NextResponse.json(
+          {
+            error:
+              workerError instanceof Error
+                ? `Could not reach the render service: ${workerError.message}`
+                : 'Could not reach the render service.',
+          },
+          { status: 502 }
+        );
       }
     }
 
