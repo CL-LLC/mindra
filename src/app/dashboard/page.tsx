@@ -17,6 +17,8 @@ interface MindMovie {
   goals: string[];
   affirmations: string[];
   duration: number;
+  status?: 'draft' | 'rendering' | 'ready' | 'archived';
+  renderError?: string;
   videoUrl?: string;
   affirmationManifest?: {
     version: 1;
@@ -165,12 +167,17 @@ export default function DashboardPage() {
                       <span className="text-xs text-white/50">+{movie.goals.length - 3} more</span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-white/60 mb-4">
+                  <div className="flex items-center gap-2 text-sm text-white/60 mb-2">
                     <Clock className="w-4 h-4" />
                     <span>{movie.duration}s</span>
                     <span>•</span>
                     <span>{movie.goals.length} {t('dashboard.goalsCount')}</span>
+                    <span>•</span>
+                    <span className={movie.status === 'ready' ? 'text-emerald-300' : movie.status === 'rendering' ? 'text-amber-300' : 'text-slate-300'}>{movie.status || 'draft'}</span>
                   </div>
+                  {movie.renderError && (
+                    <p className="mb-4 text-xs text-red-300/90">{movie.renderError}</p>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <Link
                       href={`/mind-movies/${movie._id}`}
@@ -188,13 +195,15 @@ export default function DashboardPage() {
                         {t('dashboard.watch')}
                       </button>
                     )}
-                    <button
-                      onClick={() => setArchived(movie._id, 'archived')}
-                      className="flex items-center gap-1 px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 rounded-lg transition-colors text-white/60"
-                    >
-                      <Archive className="w-3 h-3" />
-                      {t('dashboard.archive')}
-                    </button>
+                    {movie.status === 'ready' && (
+                      <button
+                        onClick={() => setArchived(movie._id, 'archived')}
+                        className="flex items-center gap-1 px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 rounded-lg transition-colors text-white/60"
+                      >
+                        <Archive className="w-3 h-3" />
+                        {t('dashboard.archive')}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
