@@ -377,7 +377,7 @@ export function validateStoryboard(scenes: StoryboardScene[]): {
       errors.push(`Scene ${i + 1}: Duration must be between 5 and 60 seconds`);
     }
     
-    if (!['fade', 'zoom', 'pan', 'dissolve'].includes(scene.transition)) {
+    if (!['fade', 'zoom', 'pan', 'dissolve', 'cross-dissolve', 'swipe'].includes(scene.transition as string)) {
       errors.push(`Scene ${i + 1}: Invalid transition type`);
     }
   }
