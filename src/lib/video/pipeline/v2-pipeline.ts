@@ -37,6 +37,32 @@ const PYTHON = process.env.PYTHON || 'python3';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
 
+/** Generate a synthetic fallback music track via ffmpeg (V1 parity). */
+async function ensureFallbackMusicAsset(
+  tempDir: string,
+  musicAsset: { trackId: string; volume: number; fadeIn: number; fadeOut: number },
+  sceneCount: number,
+): Promise<string | undefined> {
+  const fallbackPath = path.join(tempDir, `${musicAsset.trackId || 'mindra-fallback'}-${sceneCount}.wav`);
+  try {
+    const duration = Math.max(8, sceneCount * 10);
+    const cmd = [
+      'ffmpeg -y',
+      `-f lavfi -i ${shellQuote(`sine=frequency=220:duration=${duration}`)}`,
+      `-f lavfi -i ${shellQuote(`sine=frequency=330:duration=${duration}`)}`,
+      `-filter_complex ${shellQuote(`[0:a]volume=0.22[a0];[1:a]volume=0.12[a1];[a0][a1]amix=inputs=2:duration=longest:dropout_transition=2[aout]`)}`,
+      '-map [aout]',
+      '-c:a pcm_s16le',
+      shellQuote(fallbackPath),
+    ].join(' ');
+    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+    return fallbackPath;
+  } catch (error) {
+    console.warn('Fallback music generation failed.', error);
+    return undefined;
+  }
+}
+
 // Lazy-init generators (mirrors render-context.ts pattern)
 let _openai: OpenAI | null | undefined;
 function getOpenAIClient(): OpenAI | null {
@@ -146,9 +172,24 @@ export class V2Pipeline implements RenderPipeline {
     const sceneAnimator = new V1SceneAnimator(generators.sceneRenderer, shellQuote);
     const assembler = new V1Assembler(generators.videoComposer, shellQuote);
 
-    // Resolve music (mirrors V1 render-context logic)
+    // Resolve music (mirrors V1 render-context two-stage resolution + fallback)
     const musicAssetConfig = getMusicAsset(opts.musicTrack, scenes.length);
-    const resolvedMusicPath = (await resolveMusicAssetPath(musicAssetConfig)) ?? '';
+    const resolvedMusicPath = (await resolveMusicAssetPath(musicAssetConfig)) || undefined;
+
+    // Stage 2: generate fallback music if no resolved asset (V1 parity)
+    let finalMusicPath: string | undefined = resolvedMusicPath;
+    if (!finalMusicPath) {
+      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mindra-v2-music-'));
+      try {
+        finalMusicPath = await ensureFallbackMusicAsset(tempDir, musicAssetConfig, scenes.length);
+      } finally {
+        // Fallback writes into tempDir; the pipeline will clean up its own temp later.
+        // If generation failed, clean up the music temp dir.
+        if (!finalMusicPath) {
+          try { await fs.rm(tempDir, { recursive: true, force: true }); } catch {}
+        }
+      }
+    }
 
     // Run the staged pipeline
     const videoBuffer = await runV2Pipeline(
@@ -166,7 +207,7 @@ export class V2Pipeline implements RenderPipeline {
           fadeOut: musicAssetConfig.fadeOut,
           trackId: musicAssetConfig.trackId,
         },
-        musicPath: resolvedMusicPath,
+        musicPath: finalMusicPath ?? '',
       },
     );
 
