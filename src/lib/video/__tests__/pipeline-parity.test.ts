@@ -238,6 +238,53 @@ async function testV1AssemblerIntroOutro() {
 }
 
 // ---------------------------------------------------------------------------
+// Test: V1Assembler forwards introDuration and mainDuration to mixAudio
+// MINDRA-0068
+// ---------------------------------------------------------------------------
+
+async function testV1AssemblerAudioTimingParity() {
+  const { V1Assembler } = await import("../v2/assembler");
+  const mock = createMockGenerators();
+
+  const assembler = new V1Assembler(
+    mock.generators.videoComposer,
+    (v: string) => `"${v}"`
+  );
+
+  const fs = await import("fs/promises");
+  const tmpDir = `/tmp/mindra-audio-timing-${Date.now()}`;
+  await fs.mkdir(tmpDir, { recursive: true });
+  const clip1 = `${tmpDir}/clip1.mp4`;
+  await fs.writeFile(clip1, Buffer.alloc(100));
+
+  try {
+    await assembler.assemble({
+      clips: [{ clipPath: clip1, durationSec: 8 }],
+      narrationTracks: [],
+      musicAsset: { volume: 0.15, fadeIn: 2, fadeOut: 3, trackId: "default" },
+      musicPath: "",
+      tempDir: tmpDir,
+      totalDurationSec: 30,
+      introDurationSec: 5,
+      mainDurationSec: 25,
+      globalOptions: { width: 1280, height: 720, fps: 30 },
+    });
+  } catch {
+    // ffmpeg may fail — we only need the mixAudio call recorded
+  }
+
+  await fs.rm(tmpDir, { recursive: true, force: true });
+
+  assert.ok(mock.mixAudioCalls.length >= 1, "mixAudio should have been called");
+  const call = mock.mixAudioCalls[0];
+  assert.strictEqual(call.introDuration, 5, "introDuration should be forwarded from introDurationSec");
+  assert.strictEqual(call.mainDuration, 25, "mainDuration should be forwarded from mainDurationSec");
+  assert.strictEqual(call.totalDuration, 30, "totalDuration should match totalDurationSec");
+
+  console.log("✅ testV1AssemblerAudioTimingParity passed — introDuration=5, mainDuration=25 correctly forwarded");
+}
+
+// ---------------------------------------------------------------------------
 // Test: Pipeline factory defaults to V1
 // ---------------------------------------------------------------------------
 
@@ -267,6 +314,7 @@ async function main() {
     await testV1KeyframeGenerator();
     await testV1SceneAnimatorTextParity();
     await testV1AssemblerIntroOutro();
+    await testV1AssemblerAudioTimingParity();
     await testPipelineFactoryDefault();
     console.log("\n✅ All parity tests passed (gaps documented)");
   } catch (err: any) {
