@@ -23,7 +23,7 @@ import {
   getKaleidoscopeConfig,
   resolveKaleidoscopeAssetPath,
 } from '../kaleidoscope-registry';
-import { DEFAULT_OPTIONS, shellQuote } from '../render-executor';
+import { DEFAULT_OPTIONS, shellQuote, resolveBackgroundImage } from '../render-executor';
 import OpenAI from 'openai';
 import fs from 'fs/promises';
 import path from 'path';
@@ -141,13 +141,14 @@ export class V2Pipeline implements RenderPipeline {
     const planner = new V1Planner();
     const keyframeGenerator = new V1KeyframeGenerator(
       generators.imageGenerator, opts.width, opts.height,
+      resolveBackgroundImage,
     );
     const sceneAnimator = new V1SceneAnimator(generators.sceneRenderer, shellQuote);
     const assembler = new V1Assembler(generators.videoComposer, shellQuote);
 
     // Resolve music (mirrors V1 render-context logic)
-    const musicAsset = getMusicAsset(opts.musicTrack, scenes.length);
-    const rawMusicPath = await resolveMusicAssetPath(musicAsset);
+    const musicAssetConfig = getMusicAsset(opts.musicTrack, scenes.length);
+    const resolvedMusicPath = (await resolveMusicAssetPath(musicAssetConfig)) ?? '';
 
     // Run the staged pipeline
     const videoBuffer = await runV2Pipeline(
@@ -159,6 +160,13 @@ export class V2Pipeline implements RenderPipeline {
         sceneAnimator,
         assembler,
         buildNarrationTracks,
+        musicAsset: {
+          volume: musicAssetConfig.volume,
+          fadeIn: musicAssetConfig.fadeIn,
+          fadeOut: musicAssetConfig.fadeOut,
+          trackId: musicAssetConfig.trackId,
+        },
+        musicPath: resolvedMusicPath,
       },
     );
 

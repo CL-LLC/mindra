@@ -15,6 +15,7 @@ import type {
   RenderSceneV2,
   RenderOptionsV2,
   NarrationTrackV2,
+  MusicAssetConfig,
 } from './types';
 
 export interface V2PipelineDeps {
@@ -27,6 +28,9 @@ export interface V2PipelineDeps {
     shots: { affirmation: string; narrationAudioDataUrl?: string; narrationMimeType?: string; narrationDurationMs?: number; durationSec: number }[],
     tempDir: string,
   ) => Promise<NarrationTrackV2[]>;
+  /** Resolved music asset config and local file path */
+  musicAsset?: MusicAssetConfig;
+  musicPath?: string;
 }
 
 export async function runV2Pipeline(
@@ -80,8 +84,8 @@ export async function runV2Pipeline(
     buffer = await deps.assembler.assemble({
       clips: animateResults,
       narrationTracks,
-      musicAsset: { volume: 0.15, fadeIn: 2, fadeOut: 3, trackId: 'default' },
-      musicPath: '', // resolved by integration wrapper
+      musicAsset: deps.musicAsset ?? { volume: 0.15, fadeIn: 2, fadeOut: 3, trackId: 'default' },
+      musicPath: deps.musicPath ?? '',
       tempDir,
       totalDurationSec,
       globalOptions: plan.globalOptions,

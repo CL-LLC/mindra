@@ -15,6 +15,7 @@ export interface ShotPlan {
   durationSec: number;
   imagePrompt: string;
   backgroundColor: string;
+  backgroundImageUrl?: string;
   language?: string;
   title?: string;
   description?: string;

@@ -9,9 +9,25 @@ export class V1KeyframeGenerator implements KeyframeGenerator {
     private imageGenerator: ImageGenerator,
     private width: number,
     private height: number,
+    private resolveBackgroundImage?: (url: string, tempDir: string, index: number) => Promise<string | undefined>,
   ) {}
 
   async generate(shot: ShotPlan, tempDir: string, index: number): Promise<KeyframeResult> {
+    // Resolve background image URL first (V1 parity)
+    let resolvedBgPath: string | undefined;
+    if (shot.backgroundImageUrl && this.resolveBackgroundImage) {
+      resolvedBgPath = await this.resolveBackgroundImage(shot.backgroundImageUrl, tempDir, index);
+    }
+
+    // If a pre-existing background image was resolved, skip image generation
+    if (resolvedBgPath) {
+      return {
+        imagePath: resolvedBgPath,
+        width: this.width,
+        height: this.height,
+      };
+    }
+
     const imagePath = await this.imageGenerator.generate({
       prompt: shot.imagePrompt,
       tempDir,
@@ -20,8 +36,6 @@ export class V1KeyframeGenerator implements KeyframeGenerator {
       height: this.height,
     });
 
-    // If image gen fails or is skipped, we still return — the animator
-    // will use PIL fallback with backgroundColor + text.
     return {
       imagePath: imagePath ?? '',
       width: this.width,

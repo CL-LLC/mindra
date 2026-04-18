@@ -17,6 +17,7 @@ export class V1Planner implements Planner {
       durationSec: scene.duration,
       imagePrompt: scene.imagePrompt ?? scene.affirmation,
       backgroundColor: scene.backgroundColor ?? '#000000',
+      backgroundImageUrl: scene.backgroundImageUrl,
       language: scene.language,
       title: scene.title,
       description: scene.description,
