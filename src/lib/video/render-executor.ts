@@ -55,7 +55,7 @@ export interface RenderOptions {
   kaleidoscope?: Partial<KaleidoscopeConfig>;
 }
 
-const DEFAULT_OPTIONS: Required<Omit<RenderOptions, 'musicTrack' | 'kaleidoscope'>> = {
+export const DEFAULT_OPTIONS: Required<Omit<RenderOptions, 'musicTrack' | 'kaleidoscope'>> = {
   width: 1280,
   height: 720,
   fps: 30,
@@ -66,105 +66,10 @@ export async function renderVideo(
   scenes: RenderScene[],
   options: RenderOptions = {}
 ): Promise<Buffer> {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mindra-render-'));
-  const kaleidoscopeConfig = getKaleidoscopeConfig(options.kaleidoscope);
-  const musicAsset = getMusicAsset(opts.musicTrack, scenes.length);
-  const musicPath = (await resolveMusicAssetPath(musicAsset)) || (await ensureFallbackMusicAsset(tempDir, musicAsset, scenes.length));
-  const narrationTracks = await buildSceneNarrationTracks(scenes, tempDir);
-
-  try {
-    const sceneFiles: string[] = [];
-    let introFile: string | undefined;
-    let outroFile: string | undefined;
-
-    // Prepare kaleidoscope intro/outro clips if enabled
-    if (kaleidoscopeConfig.enabled) {
-      introFile = await ensureKaleidoscopeClip({
-        type: 'intro',
-        config: kaleidoscopeConfig,
-        tempDir,
-        width: opts.width,
-        height: opts.height,
-        fps: opts.fps,
-        quality: opts.quality,
-      });
-      outroFile = await ensureKaleidoscopeClip({
-        type: 'outro',
-        config: kaleidoscopeConfig,
-        tempDir,
-        width: opts.width,
-        height: opts.height,
-        fps: opts.fps,
-        quality: opts.quality,
-      });
-    }
-
-    for (let i = 0; i < scenes.length; i++) {
-      const scene = scenes[i];
-      const sceneFile = path.join(tempDir, `scene-${i}.mp4`);
-      const frameFile = path.join(tempDir, `scene-${i}.png`);
-      const bgColor = scene.backgroundColor || getRandomGradientColor();
-      const fontSize = Math.floor(opts.height * 0.06);
-      const maxTextWidth = Math.floor(opts.width * 0.76);
-      const generatedImagePath = await ensureSceneImageAsset({
-            scene,
-            tempDir,
-            index: i,
-            width: opts.width,
-            height: opts.height,
-          });
-      // No text overlay on frame - affirmation overlay is handled by MindMoviePlayer
-      await generators.sceneRenderer.renderFrame(frameFile, {
-        text: '', // Clear text overlay - affirmations shown via playback overlay only
-        backgroundColor: bgColor,
-        backgroundImagePath: generatedImagePath,
-        width: opts.width,
-        height: opts.height,
-        fontSize,
-        maxTextWidth,
-      });
-
-      const cmd = [
-        'ffmpeg -y',
-        `-loop 1 -t ${scene.duration} -i ${shellQuote(frameFile)}`,
-        `-r ${opts.fps}`,
-        `-c:v libx264 -preset ${opts.quality === 'high' ? 'slow' : opts.quality === 'low' ? 'ultrafast' : 'medium'}`,
-        '-pix_fmt yuv420p',
-        shellQuote(sceneFile)
-      ].join(' ');
-
-      console.log(`Rendering scene ${i + 1}/${scenes.length}...`);
-      await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
-      sceneFiles.push(sceneFile);
-    }
-
-    // Build concat list with intro/outro
-    const concatParts: string[] = [];
-    if (introFile) concatParts.push(introFile);
-    concatParts.push(...sceneFiles);
-    if (outroFile) concatParts.push(outroFile);
-
-    const outputFile = await generators.videoComposer.concatScenes({ concatParts, tempDir });
-
-    // Calculate total duration including intro/outro
-    const mainDuration = scenes.reduce((sum, scene) => sum + scene.duration, 0);
-    const introDuration = introFile ? kaleidoscopeConfig.introDuration : 0;
-    const outroDuration = outroFile ? kaleidoscopeConfig.outroDuration : 0;
-    const totalDuration = introDuration + mainDuration + outroDuration;
-    
-    const finalVideoFile = await generators.videoComposer.mixAudio({ outputFile, tempDir, narrationTracks, musicPath, musicAsset, totalDuration, introDuration, mainDuration });
-
-    const videoBuffer = await fs.readFile(finalVideoFile);
-    console.log(`Render complete: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`);
-    return videoBuffer;
-  } finally {
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    } catch (e) {
-      console.error('Failed to cleanup temp dir:', e);
-    }
-  }
+  // Delegate to RenderContext for staged execution
+  const { RenderContext } = await import('./pipeline/render-context');
+  const ctx = new RenderContext(scenes, options);
+  return ctx.run();
 }
 
 function getRandomGradientColor(): string {
@@ -467,7 +372,7 @@ async function ensureFallbackMusicAsset(tempDir: string, musicAsset: { trackId: 
   }
 }
 
-function getSceneVisualPrompt(scene: RenderScene, index: number): string {
+export function getSceneVisualPrompt(scene: RenderScene, index: number): string {
   // Only use visual description fields - exclude affirmation to avoid text in generated images
   const parts = [scene.title, scene.description, scene.imagePrompt]
     .map(part => part?.trim())
@@ -486,7 +391,7 @@ function getSceneVisualPrompt(scene: RenderScene, index: number): string {
   return basePrompt;
 }
 
-async function resolveBackgroundImage(url: string, tempDir: string, index: number): Promise<string | undefined> {
+export async function resolveBackgroundImage(url: string, tempDir: string, index: number): Promise<string | undefined> {
   if (!url) return undefined;
   if (url.startsWith('file://')) return url.slice('file://'.length);
   if (url.startsWith('/') && !url.startsWith('//')) return url;
@@ -503,7 +408,7 @@ async function resolveBackgroundImage(url: string, tempDir: string, index: numbe
   return undefined;
 }
 
-function shellQuote(value: string): string {
+export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 

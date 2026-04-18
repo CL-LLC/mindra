@@ -5,6 +5,8 @@
  * to opt into V2 when ready.
  */
 
+export { RenderContext } from "./render-context";
+export type { ResolvedRenderOptions } from "./render-context";
 import type { RenderPipeline } from "./types";
 import { V1Pipeline } from "./v1-pipeline";
 

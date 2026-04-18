@@ -231,6 +231,51 @@ The second implementation slice creates exactly these files:
 
 ---
 
+## 8. Slice 2 Implementation Status (2026-04-18)
+
+All 8 files created and compiling cleanly:
+
+| File | Status |
+|---|---|
+| `src/lib/video/v2/types.ts` | ✅ All interfaces from §3 |
+| `src/lib/video/v2/planner.ts` | ✅ `V1Planner` (identity mapping) |
+| `src/lib/video/v2/keyframe-generator.ts` | ✅ `V1KeyframeGenerator` (delegates to `ImageGenerator`) |
+| `src/lib/video/v2/scene-animator.ts` | ✅ `V1SceneAnimator` (PIL + ffmpeg still-to-video) |
+| `src/lib/video/v2/assembler.ts` | ✅ `V1Assembler` (delegates to `VideoComposer`) |
+| `src/lib/video/v2/job-router.ts` | ✅ `EnvJobRouter` (env-var based) |
+| `src/lib/video/v2/pipeline.ts` | ✅ Orchestrates 4 stages sequentially |
+| `src/lib/video/v2/index.ts` | ✅ Barrel export |
+
+### Integration Seam (for Builder)
+
+To wire V2 into the existing render path, the Builder needs to:
+
+1. **Add a conditional branch** in `render-executor.ts` (or a new `render-v2-bridge.ts`):
+   ```ts
+   import { EnvJobRouter } from './v2';
+   const router = new EnvJobRouter();
+   if (router.selectPipeline(options) === 'v2') {
+     return runV2Pipeline(scenes, options, { planner, keyframeGenerator, sceneAnimator, assembler, buildNarrationTracks });
+   }
+   // ... existing V1 path ...
+   ```
+
+2. **Wire dependencies** — pass the existing `generators` object to V1 adapter constructors:
+   ```ts
+   const planner = new V1Planner();
+   const kfGen = new V1KeyframeGenerator(generators.imageGenerator, width, height);
+   const animator = new V1SceneAnimator(generators.sceneRenderer, shellQuote);
+   const assembler = new V1Assembler(generators.videoComposer, shellQuote);
+   ```
+
+3. **Handle music/kaleidoscope resolution** — the existing `getMusicAsset()` + `resolveMusicAssetPath()` calls stay in the integration layer. Pass resolved paths to `assembler.assemble()`.
+
+4. **`buildNarrationTracks` callback** — extract the existing narration track building logic (data-url → file, TTS → file) into a function matching the `V2PipelineDeps.buildNarrationTracks` signature.
+
+**Key invariant:** With `MINDRA_V2_PIPELINE=true`, the V2 path must produce output identical to V1 (same frames, same audio mix, same codec settings). The adapters are thin wrappers — no behavioral divergence.
+
+---
+
 ## 7. Risks
 
 | Risk | Mitigation |
