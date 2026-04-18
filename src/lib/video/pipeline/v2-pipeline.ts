@@ -207,7 +207,7 @@ async function generateSyntheticKaleidoscopeClip(params: {
   const cmd = [
     'ffmpeg -y',
     `-f lavfi -i color=c=0x1e1b4b:s=${width}x${height}:d=${duration}:r=${fps}`,
-    `"${kaleidoscopeFilter}"`,
+    `-vf "${kaleidoscopeFilter}"`,
     `-t ${duration}`,
     `-c:v libx264 -preset ${quality === 'high' ? 'slow' : quality === 'low' ? 'ultrafast' : 'medium'}`,
     '-an',
