@@ -161,9 +161,9 @@ export async function POST(request: NextRequest) {
         size: videoBuffer.length,
       });
     } catch (renderError) {
-      await convex.mutation(api.mindMovies.failRenderFromWorker, {
-        mindMovieId: id,
-        message: renderError instanceof Error ? renderError.message : 'Render failed',
+      await convex.mutation(api.mindMovies.updateVideo, {
+        id,
+        status: 'draft',
       });
       throw renderError;
     }
