@@ -12,12 +12,23 @@ import {
   resolveKaleidoscopeAssetPath,
   KaleidoscopeConfig,
 } from './kaleidoscope-registry';
+import { createVideoGenerators } from './generators';
+import type { NarrationTrack } from './generators/types';
 
 const execAsync = promisify(exec);
 const PYTHON = process.env.PYTHON || 'python3';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
 const openaiClient = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+const generators = createVideoGenerators({
+  openaiClient,
+  imageModel: OPENAI_IMAGE_MODEL,
+  ttsModel: process.env.MINDRA_TTS_MODEL || 'tts-1',
+  ttsVoice: process.env.MINDRA_TTS_VOICE || 'alloy',
+  pythonCommand: PYTHON,
+  shellQuote,
+  fallbackRenderer: renderFallbackSceneImage,
+});
 
 export interface RenderScene {
   affirmation: string;
@@ -104,7 +115,7 @@ export async function renderVideo(
             height: opts.height,
           });
       // No text overlay on frame - affirmation overlay is handled by MindMoviePlayer
-      await renderSceneFrame(frameFile, {
+      await generators.sceneRenderer.renderFrame(frameFile, {
         text: '', // Clear text overlay - affirmations shown via playback overlay only
         backgroundColor: bgColor,
         backgroundImagePath: generatedImagePath,
@@ -134,20 +145,7 @@ export async function renderVideo(
     concatParts.push(...sceneFiles);
     if (outroFile) concatParts.push(outroFile);
 
-    const concatFile = path.join(tempDir, 'concat.txt');
-    const concatContent = concatParts.map(f => `file '${f}'`).join('\n');
-    await fs.writeFile(concatFile, concatContent);
-
-    const outputFile = path.join(tempDir, 'output-no-audio.mp4');
-    const concatCmd = [
-      'ffmpeg -y',
-      `-f concat -safe 0 -i ${shellQuote(concatFile)}`,
-      '-c copy',
-      shellQuote(outputFile)
-    ].join(' ');
-
-    console.log('Concatenating scenes...');
-    await execAsync(concatCmd, { maxBuffer: 20 * 1024 * 1024 });
+    const outputFile = await generators.videoComposer.concatScenes({ concatParts, tempDir });
 
     // Calculate total duration including intro/outro
     const mainDuration = scenes.reduce((sum, scene) => sum + scene.duration, 0);
@@ -155,7 +153,7 @@ export async function renderVideo(
     const outroDuration = outroFile ? kaleidoscopeConfig.outroDuration : 0;
     const totalDuration = introDuration + mainDuration + outroDuration;
     
-    const finalVideoFile = await mixOptionalAudio({ outputFile, tempDir, narrationTracks, musicPath, musicAsset, totalDuration, introDuration, mainDuration });
+    const finalVideoFile = await generators.videoComposer.mixAudio({ outputFile, tempDir, narrationTracks, musicPath, musicAsset, totalDuration, introDuration, mainDuration });
 
     const videoBuffer = await fs.readFile(finalVideoFile);
     console.log(`Render complete: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`);
@@ -382,7 +380,7 @@ async function ensureSceneImageAsset(params: {
     : undefined;
   if (existingAsset) return existingAsset;
 
-  const generatedAsset = await generateSceneImageAsset({
+  const generatedAsset = await generators.imageGenerator.generate({
     prompt: getSceneVisualPrompt(scene, index),
     tempDir,
     index,
@@ -390,51 +388,6 @@ async function ensureSceneImageAsset(params: {
     height,
   });
   return generatedAsset;
-}
-
-async function generateSceneImageAsset(params: {
-  prompt: string;
-  tempDir: string;
-  index: number;
-  width: number;
-  height: number;
-}): Promise<string | undefined> {
-  const { prompt, tempDir, index, width, height } = params;
-  const outputPath = path.join(tempDir, `generated-${index}.png`);
-  const fallbackPath = path.join(tempDir, `generated-${index}-fallback.png`);
-  const size = width >= height ? '1024x1024' : '1024x1536';
-
-  if (openaiClient) {
-    try {
-      const response: any = await (openaiClient as any).images.generate({
-        model: OPENAI_IMAGE_MODEL,
-        prompt: `Cinematic scene image for video production. Depict the scene faithfully: ${prompt}. No text, no watermark, rich lighting, realistic composition.`,
-        size,
-      });
-
-      const imageData = response?.data?.[0];
-      const base64 = imageData?.b64_json || imageData?.b64Json;
-      const imageUrl = imageData?.url;
-
-      if (base64) {
-        await fs.writeFile(outputPath, Buffer.from(base64, 'base64'));
-        return outputPath;
-      }
-
-      if (imageUrl) {
-        const response = await fetch(imageUrl);
-        if (response.ok) {
-          await fs.writeFile(outputPath, Buffer.from(await response.arrayBuffer()));
-          return outputPath;
-        }
-      }
-    } catch (error) {
-      console.warn('OpenAI image generation failed; falling back to local poster render.', error);
-    }
-  }
-
-  await renderFallbackSceneImage(fallbackPath, prompt, width, height);
-  return fallbackPath;
 }
 
 async function renderFallbackSceneImage(outputPath: string, prompt: string, width: number, height: number): Promise<void> {
@@ -559,85 +512,7 @@ export function estimateRenderTime(scenes: RenderScene[]): number {
   return totalDuration * 2.5;
 }
 
-async function mixOptionalAudio(params: {
-  outputFile: string;
-  tempDir: string;
-  narrationTracks?: Array<{ path: string; start: number; duration: number; clipDuration: number; repeat?: boolean }>;
-  musicPath?: string;
-  musicAsset: { volume: number; fadeIn: number; fadeOut: number; trackId: string };
-  totalDuration: number;
-  introDuration?: number;
-  mainDuration?: number;
-}): Promise<string> {
-  const { outputFile, tempDir, narrationTracks = [], musicPath, musicAsset, totalDuration, introDuration = 0, mainDuration = totalDuration } = params;
-  if (!narrationTracks.length && !musicPath) return outputFile;
-
-  const finalVideoFile = path.join(tempDir, 'output-final.mp4');
-  const inputs: string[] = [];
-  narrationTracks.forEach(track => {
-    const input = track.repeat ? `-stream_loop -1 -i ${shellQuote(track.path)}` : `-i ${shellQuote(track.path)}`;
-    inputs.push(input);
-  });
-  if (musicPath) inputs.push(`-stream_loop -1 -i ${shellQuote(musicPath)}`);
-
-  const filters: string[] = [];
-  const audioMixInputs: string[] = [];
-
-  const narrationInputOffset = 1; // input #0 is the silent scene video; narration starts at input #1
-  narrationTracks.forEach((track, index) => {
-    const label = `narr${index}`;
-    const inputIndex = narrationInputOffset + index;
-    const usableDuration = track.repeat && track.clipDuration > 0
-      ? Math.max(track.clipDuration, Math.floor(track.duration / track.clipDuration) * track.clipDuration)
-      : Math.min(track.duration, mainDuration);
-    const voiceGain = track.repeat ? 2.6 : 2.1;
-    // Offset narration start by introDuration so it plays during the main content, not the intro
-    const adjustedStart = Math.round((introDuration + track.start) * 1000);
-    filters.push(`[${inputIndex}:a]atrim=0:${usableDuration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${voiceGain},alimiter=limit=0.92,adelay=${adjustedStart}|${adjustedStart}[${label}]`);
-    audioMixInputs.push(`[${label}]`);
-  });
-
-  const musicInputIndex = narrationInputOffset + narrationTracks.length;
-  if (musicPath) {
-    const fadeOutStart = Math.max(0.1, totalDuration - musicAsset.fadeOut);
-    const musicGain = Math.max(0.06, Math.min(musicAsset.volume, 0.14));
-    filters.push(`[${musicInputIndex}:a]atrim=0:${totalDuration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${musicGain},afade=t=in:st=0:d=${musicAsset.fadeIn},afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${musicAsset.fadeOut}[music]`);
-    audioMixInputs.push('[music]');
-  }
-
-  if (audioMixInputs.length === 1) {
-    filters.push(`${audioMixInputs[0]}anull[aout]`);
-  } else {
-    filters.push(`${audioMixInputs.join('')}amix=inputs=${audioMixInputs.length}:duration=longest:dropout_transition=0,alimiter=limit=0.96[aout]`);
-  }
-
-  const cmd = [
-    'ffmpeg -y',
-    `-i ${shellQuote(outputFile)}`,
-    ...inputs,
-    `-filter_complex ${shellQuote(filters.join(';'))}`,
-    '-map 0:v',
-    '-map [aout]',
-    '-c:v copy',
-    '-c:a aac -b:a 128k',
-    '-movflags +faststart',
-    shellQuote(finalVideoFile),
-  ].join(' ');
-
-  try {
-    const mixParts = [];
-    if (narrationTracks.length) mixParts.push(`${narrationTracks.length} scene narration track${narrationTracks.length === 1 ? '' : 's'}`);
-    if (musicPath) mixParts.push('music');
-    console.log(`Adding ${mixParts.join(' + ')} audio...`);
-    await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
-    return finalVideoFile;
-  } catch (audioError) {
-    console.warn('Audio mix failed; returning silent video.', audioError);
-    return outputFile;
-  }
-}
-
-async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string): Promise<Array<{ path: string; start: number; duration: number; clipDuration: number; repeat: boolean; sourceType: 'recorded' | 'tts' }> | undefined> {
+async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string): Promise<NarrationTrack[] | undefined> {
   // Extract unique affirmations from scenes to build the pair-playback audio strategy
   const affirmations = [...new Set(scenes.map(s => s.affirmation.trim()).filter(Boolean))];
   if (affirmations.length === 0) return undefined;
@@ -664,7 +539,7 @@ async function buildSceneNarrationTracks(scenes: RenderScene[], tempDir: string)
     }
   }
 
-  const tracks: Array<{ path: string; start: number; duration: number; clipDuration: number; repeat: boolean; sourceType: 'recorded' | 'tts' }> = [];
+  const tracks: NarrationTrack[] = [];
 
   // Resolve audio sources for the pair
   const sourceA = affirmationToScene.get(affirmationA);
@@ -741,7 +616,8 @@ async function resolveNarrationSource(scene: RenderScene, tempDir: string, scene
   const recordingPath = await writeNarrationRecording(tempDir, sceneIndex, scene.narrationAudioDataUrl, scene.narrationMimeType);
   if (recordingPath) return { path: recordingPath, sourceType: 'recorded' };
   if (!openaiClient) return undefined;
-  const synthesizedPath = await synthesizeAffirmationClip(tempDir, sceneIndex, affirmation);
+  const synthesizedPath = await generators.audioGenerator?.synthesize(tempDir, sceneIndex, affirmation);
+  if (!synthesizedPath) return undefined;
   return { path: synthesizedPath, sourceType: 'tts' };
 }
 
@@ -757,20 +633,6 @@ async function writeNarrationRecording(tempDir: string, sceneIndex: number, data
   const outputPath = path.join(tempDir, `narration-${sceneIndex}${ext}`);
   await fs.writeFile(outputPath, Buffer.from(payload, 'base64'));
   return outputPath;
-}
-
-async function synthesizeAffirmationClip(tempDir: string, sceneIndex: number, affirmation: string): Promise<string> {
-  const response: any = await (openaiClient as any).audio.speech.create({
-    model: process.env.MINDRA_TTS_MODEL || 'tts-1',
-    voice: process.env.MINDRA_TTS_VOICE || 'alloy',
-    input: affirmation,
-    format: 'mp3',
-  });
-
-  const narrationPath = path.join(tempDir, `narration-${sceneIndex}.mp3`);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  await fs.writeFile(narrationPath, buffer);
-  return narrationPath;
 }
 
 function mimeTypeToExtension(mimeType: string): string {
