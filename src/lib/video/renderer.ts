@@ -354,17 +354,9 @@ export function validateStoryboard(scenes: StoryboardScene[]): {
     errors.push('Storyboard must have at least one scene');
   }
   
-  // TEMPORARY TEST CAP: Limit to 7 scenes for faster iteration
-  // TODO: Remove this cap when testing is complete
-  const MAX_SCENES_TEMP = 7;
-  if (scenes.length > MAX_SCENES_TEMP) {
-    errors.push(`TEMPORARY TEST CAP: Storyboard cannot have more than ${MAX_SCENES_TEMP} scenes (currently ${scenes.length}). This is for faster testing and will be removed.`);
+  if (scenes.length > 20) {
+    errors.push('Storyboard cannot have more than 20 scenes');
   }
-  
-  // Original limit (uncomment when test cap is removed):
-  // if (scenes.length > 20) {
-  //   errors.push('Storyboard cannot have more than 20 scenes');
-  // }
   
   for (let i = 0; i < scenes.length; i++) {
     const scene = scenes[i];
