@@ -31,6 +31,9 @@ export interface V2PipelineDeps {
   /** Resolved music asset config and local file path */
   musicAsset?: MusicAssetConfig;
   musicPath?: string;
+  /** Kaleidoscope intro/outro clip paths (resolved by caller) */
+  introPath?: string;
+  outroPath?: string;
 }
 
 export async function runV2Pipeline(
@@ -88,6 +91,8 @@ export async function runV2Pipeline(
       musicPath: deps.musicPath ?? '',
       tempDir,
       totalDurationSec,
+      introPath: deps.introPath,
+      outroPath: deps.outroPath,
       globalOptions: plan.globalOptions,
     });
   } finally {

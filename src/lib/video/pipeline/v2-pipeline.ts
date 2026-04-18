@@ -22,6 +22,7 @@ import { getMusicAsset, resolveMusicAssetPath } from '../music-registry';
 import {
   getKaleidoscopeConfig,
   resolveKaleidoscopeAssetPath,
+  type KaleidoscopeConfig,
 } from '../kaleidoscope-registry';
 import { DEFAULT_OPTIONS, shellQuote, resolveBackgroundImage } from '../render-executor';
 import OpenAI from 'openai';
@@ -149,6 +150,76 @@ async function buildNarrationTracks(
   return tracks;
 }
 
+// --- Kaleidoscope intro/outro clip generation (V1 parity) ---
+
+async function ensureKaleidoscopeClip(params: {
+  type: 'intro' | 'outro';
+  config: KaleidoscopeConfig;
+  tempDir: string;
+  width: number;
+  height: number;
+  fps: number;
+  quality: 'low' | 'medium' | 'high';
+}): Promise<string | undefined> {
+  const { type, config, tempDir, width, height, fps, quality } = params;
+  const asset = type === 'intro' ? config.intro : config.outro;
+  const duration = type === 'intro' ? config.introDuration : config.outroDuration;
+
+  // Try to use stock asset first
+  const stockPath = await resolveKaleidoscopeAssetPath(asset);
+  if (stockPath) {
+    console.log(`Using stock kaleidoscope ${type}: ${stockPath}`);
+    const outputClip = path.join(tempDir, `kaleidoscope-${type}.mp4`);
+    const cmd = [
+      'ffmpeg -y',
+      `-i ${shellQuote(stockPath)}`,
+      `-t ${duration}`,
+      `-vf scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`,
+      `-r ${fps}`,
+      `-c:v libx264 -preset ${quality === 'high' ? 'slow' : quality === 'low' ? 'ultrafast' : 'medium'}`,
+      '-an',
+      '-pix_fmt yuv420p',
+      shellQuote(outputClip),
+    ].join(' ');
+    await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
+    return outputClip;
+  }
+
+  // Fallback: generate synthetic kaleidoscope-style video
+  console.log(`Generating synthetic kaleidoscope ${type} (${duration}s)...`);
+  return generateSyntheticKaleidoscopeClip({ type, duration, tempDir, width, height, fps, quality });
+}
+
+async function generateSyntheticKaleidoscopeClip(params: {
+  type: 'intro' | 'outro';
+  duration: number;
+  tempDir: string;
+  width: number;
+  height: number;
+  fps: number;
+  quality: 'low' | 'medium' | 'high';
+}): Promise<string> {
+  const { type, duration, tempDir, width, height, fps, quality } = params;
+  const outputClip = path.join(tempDir, `kaleidoscope-${type}.mp4`);
+
+  const kaleidoscopeFilter = `geq=r='128+100*sin(N/180+X/40+Y/40)+50*cos(N/120-X/30)':g='128+100*cos(N/150+X/35+Y/45)+50*sin(N/210-Y/35)':b='128+80*sin(N/240+X/50-Y/30)+40*cos(N/180+X/45+Y/35)'`;
+
+  const cmd = [
+    'ffmpeg -y',
+    `-f lavfi -i color=c=0x1e1b4b:s=${width}x${height}:d=${duration}:r=${fps}`,
+    `"${kaleidoscopeFilter}"`,
+    `-t ${duration}`,
+    `-c:v libx264 -preset ${quality === 'high' ? 'slow' : quality === 'low' ? 'ultrafast' : 'medium'}`,
+    '-an',
+    '-pix_fmt yuv420p',
+    shellQuote(outputClip),
+  ].join(' ');
+
+  console.log(`Generating synthetic kaleidoscope ${type}...`);
+  await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
+  return outputClip;
+}
+
 export class V2Pipeline implements RenderPipeline {
   readonly version = 2;
 
@@ -191,6 +262,38 @@ export class V2Pipeline implements RenderPipeline {
       }
     }
 
+    // Resolve kaleidoscope intro/outro clips (V1 parity)
+    const kaleidoscopeConfig = getKaleidoscopeConfig(opts.kaleidoscope);
+    const kTempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mindra-v2-kal-'));
+    let introPath: string | undefined;
+    let outroPath: string | undefined;
+
+    try {
+      if (kaleidoscopeConfig.enabled) {
+        const quality = opts.quality ?? 'medium';
+        introPath = await ensureKaleidoscopeClip({
+          type: 'intro',
+          config: kaleidoscopeConfig,
+          tempDir: kTempDir,
+          width: opts.width,
+          height: opts.height,
+          fps: opts.fps,
+          quality,
+        });
+        outroPath = await ensureKaleidoscopeClip({
+          type: 'outro',
+          config: kaleidoscopeConfig,
+          tempDir: kTempDir,
+          width: opts.width,
+          height: opts.height,
+          fps: opts.fps,
+          quality,
+        });
+      }
+    } catch (err) {
+      console.warn('Kaleidoscope clip generation failed, continuing without intro/outro.', err);
+    }
+
     // Run the staged pipeline
     const videoBuffer = await runV2Pipeline(
       scenes,
@@ -208,8 +311,13 @@ export class V2Pipeline implements RenderPipeline {
           trackId: musicAssetConfig.trackId,
         },
         musicPath: finalMusicPath ?? '',
+        introPath,
+        outroPath,
       },
     );
+
+    // Cleanup kaleidoscope temp dir
+    try { await fs.rm(kTempDir, { recursive: true, force: true }); } catch {}
 
     return {
       videoBuffer,
