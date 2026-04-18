@@ -267,6 +267,8 @@ export class V2Pipeline implements RenderPipeline {
     const kTempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mindra-v2-kal-'));
     let introPath: string | undefined;
     let outroPath: string | undefined;
+    let introDurationSec: number | undefined;
+    let outroDurationSec: number | undefined;
 
     try {
       if (kaleidoscopeConfig.enabled) {
@@ -280,6 +282,7 @@ export class V2Pipeline implements RenderPipeline {
           fps: opts.fps,
           quality,
         });
+        introDurationSec = introPath ? kaleidoscopeConfig.introDuration : undefined;
         outroPath = await ensureKaleidoscopeClip({
           type: 'outro',
           config: kaleidoscopeConfig,
@@ -289,35 +292,41 @@ export class V2Pipeline implements RenderPipeline {
           fps: opts.fps,
           quality,
         });
+        outroDurationSec = outroPath ? kaleidoscopeConfig.outroDuration : undefined;
       }
     } catch (err) {
       console.warn('Kaleidoscope clip generation failed, continuing without intro/outro.', err);
     }
 
     // Run the staged pipeline
-    const videoBuffer = await runV2Pipeline(
-      scenes,
-      opts,
-      {
-        planner,
-        keyframeGenerator,
-        sceneAnimator,
-        assembler,
-        buildNarrationTracks,
-        musicAsset: {
-          volume: musicAssetConfig.volume,
-          fadeIn: musicAssetConfig.fadeIn,
-          fadeOut: musicAssetConfig.fadeOut,
-          trackId: musicAssetConfig.trackId,
+    let videoBuffer: Buffer;
+    try {
+      videoBuffer = await runV2Pipeline(
+        scenes,
+        opts,
+        {
+          planner,
+          keyframeGenerator,
+          sceneAnimator,
+          assembler,
+          buildNarrationTracks,
+          musicAsset: {
+            volume: musicAssetConfig.volume,
+            fadeIn: musicAssetConfig.fadeIn,
+            fadeOut: musicAssetConfig.fadeOut,
+            trackId: musicAssetConfig.trackId,
+          },
+          musicPath: finalMusicPath ?? '',
+          introPath,
+          outroPath,
+          introDurationSec,
+          outroDurationSec,
         },
-        musicPath: finalMusicPath ?? '',
-        introPath,
-        outroPath,
-      },
-    );
-
-    // Cleanup kaleidoscope temp dir
-    try { await fs.rm(kTempDir, { recursive: true, force: true }); } catch {}
+      );
+    } finally {
+      // Always cleanup kaleidoscope temp dir (lifecycle-safe)
+      try { await fs.rm(kTempDir, { recursive: true, force: true }); } catch {}
+    }
 
     return {
       videoBuffer,

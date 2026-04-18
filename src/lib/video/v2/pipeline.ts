@@ -34,6 +34,9 @@ export interface V2PipelineDeps {
   /** Kaleidoscope intro/outro clip paths (resolved by caller) */
   introPath?: string;
   outroPath?: string;
+  /** Kaleidoscope intro/outro durations in seconds (for total-duration accounting, V1 parity) */
+  introDurationSec?: number;
+  outroDurationSec?: number;
 }
 
 export async function runV2Pipeline(
@@ -76,8 +79,11 @@ export async function runV2Pipeline(
     tempDir,
   );
 
-  // 4. Total duration
-  const totalDurationSec = animateResults.reduce((sum, c) => sum + c.durationSec, 0);
+  // 4. Total duration (V1 parity: includes intro + main + outro)
+  const introDurationSec = deps.introPath ? (deps.introDurationSec ?? 0) : 0;
+  const outroDurationSec = deps.outroPath ? (deps.outroDurationSec ?? 0) : 0;
+  const mainDurationSec = animateResults.reduce((sum, c) => sum + c.durationSec, 0);
+  const totalDurationSec = introDurationSec + mainDurationSec + outroDurationSec;
 
   // 5. Assemble
   // NOTE: intro/outro and music path resolution is the caller's responsibility
