@@ -53,7 +53,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid storyboard', details: storyboardValidation.errors }, { status: 400 });
     }
 
-    const scenes = buildScenesForRender(movie);
+    const normalizedMovie = {
+      ...movie,
+      storyboard: normalizedStoryboard,
+      affirmations,
+    };
+
+    const scenes = buildScenesForRender(normalizedMovie);
     const affirmationManifest = generateAffirmationManifestFromNormalized(
       scenes.map((scene) => ({
         affirmation: scene.affirmation,
@@ -115,6 +121,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (process.env.VERCEL === '1') {
+      return NextResponse.json(
+        { error: 'Remote render worker is not configured in production.' },
+        { status: 503 }
+      );
+    }
+
     // Local / fallback: run ffmpeg in this process (not for Vercel serverless in production).
     await convex.mutation(api.mindMovies.updateStatus, { id, status: 'rendering' });
 
@@ -148,7 +161,10 @@ export async function POST(request: NextRequest) {
         size: videoBuffer.length,
       });
     } catch (renderError) {
-      await convex.mutation(api.mindMovies.updateStatus, { id, status: 'draft' });
+      await convex.mutation(api.mindMovies.failRenderFromWorker, {
+        mindMovieId: id,
+        message: renderError instanceof Error ? renderError.message : 'Render failed',
+      });
       throw renderError;
     }
   } catch (error) {
