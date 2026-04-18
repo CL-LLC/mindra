@@ -75,15 +75,26 @@ export async function runV2Pipeline(
   // 5. Assemble
   // NOTE: intro/outro and music path resolution is the caller's responsibility
   // in the integration layer. For now the assembler receives them as optional params.
-  const buffer = await deps.assembler.assemble({
-    clips: animateResults,
-    narrationTracks,
-    musicAsset: { volume: 0.15, fadeIn: 2, fadeOut: 3, trackId: 'default' },
-    musicPath: '', // resolved by integration wrapper
-    tempDir,
-    totalDurationSec,
-    globalOptions: plan.globalOptions,
-  });
+  let buffer: Buffer;
+  try {
+    buffer = await deps.assembler.assemble({
+      clips: animateResults,
+      narrationTracks,
+      musicAsset: { volume: 0.15, fadeIn: 2, fadeOut: 3, trackId: 'default' },
+      musicPath: '', // resolved by integration wrapper
+      tempDir,
+      totalDurationSec,
+      globalOptions: plan.globalOptions,
+    });
+  } finally {
+    // Cleanup temp dir (V1 parity)
+    try {
+      const { rm } = await import('fs/promises');
+      await rm(tempDir, { recursive: true, force: true });
+    } catch {
+      // Non-fatal cleanup failure
+    }
+  }
 
   return buffer;
 }
