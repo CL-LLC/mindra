@@ -64,6 +64,8 @@ export interface AssembleParams {
   musicPath: string;
   tempDir: string;
   totalDurationSec: number;
+  introDurationSec?: number;
+  mainDurationSec?: number;
   introPath?: string;
   outroPath?: string;
   globalOptions: RenderPlan['globalOptions'];

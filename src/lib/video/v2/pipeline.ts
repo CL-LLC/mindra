@@ -97,6 +97,8 @@ export async function runV2Pipeline(
       musicPath: deps.musicPath ?? '',
       tempDir,
       totalDurationSec,
+      introDurationSec,
+      mainDurationSec,
       introPath: deps.introPath,
       outroPath: deps.outroPath,
       globalOptions: plan.globalOptions,

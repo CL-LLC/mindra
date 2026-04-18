@@ -50,6 +50,8 @@ export class V1Assembler implements Assembler {
       musicPath,
       musicAsset,
       totalDuration: totalDurationSec,
+      introDuration: params.introDurationSec ?? 0,
+      mainDuration: params.mainDurationSec ?? totalDurationSec,
     });
 
     const { readFile } = await import('fs/promises');
