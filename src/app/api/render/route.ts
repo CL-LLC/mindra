@@ -5,7 +5,7 @@ import { ConvexHttpClient } from 'convex/browser';
 import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server';
 import { api } from '../../../../convex/_generated/api';
 import { buildScenesForRender } from '@/lib/mindMovies/render-payload';
-import { renderVideo } from '../../../lib/video/render-executor';
+import { getPipeline } from '../../../lib/video/pipeline';
 import {
   type StoryboardScene,
   validateStoryboard,
@@ -146,7 +146,8 @@ export async function POST(request: NextRequest) {
     await convex.mutation(api.mindMovies.updateStatus, { id, status: 'rendering' });
 
     try {
-      const videoBuffer = await renderVideo(scenes, {
+      const pipeline = getPipeline();
+      const { videoBuffer } = await pipeline.render(scenes, {
         width: 1280,
         height: 720,
         fps: 30,
