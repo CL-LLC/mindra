@@ -74,8 +74,9 @@ function getOpenAIClient(): OpenAI | null {
 }
 
 /**
- * Build narration tracks from scenes using existing TTS / data-url logic.
- * Extracted from render-executor's buildSceneNarrationTracks pattern.
+ * Build narration tracks using V1-equivalent pair-cycling strategy.
+ * Selects 2 affirmations via selectAffirmationPair, resolves audio for each,
+ * then cycles A in the first half and B in the second half with 8s/2s timing.
  */
 async function buildNarrationTracks(
   shots: {
@@ -86,6 +87,8 @@ async function buildNarrationTracks(
     durationSec: number;
   }[],
   tempDir: string,
+  introDurationSec?: number,
+  outroDurationSec?: number,
 ): Promise<NarrationTrackV2[]> {
   const generators = createVideoGenerators({
     openaiClient: getOpenAIClient(),
@@ -97,53 +100,115 @@ async function buildNarrationTracks(
     fallbackRenderer: async () => {},
   });
 
-  const tracks: NarrationTrackV2[] = [];
+  // --- V1 parity: pair-cycling narration ---
+  const affirmations = [...new Set(shots.map((s) => s.affirmation.trim()).filter(Boolean))];
+  if (affirmations.length === 0) return [];
 
+  const totalDuration = shots.reduce((sum, s) => sum + s.durationSec, 0);
+  if (totalDuration <= 0) return [];
+
+  const { selectAffirmationPair } = await import('../pair-playback');
+  const { pair } = selectAffirmationPair(affirmations);
+  const [affirmationA, affirmationB] = pair;
+
+  const DISPLAY_DURATION = 8;
+  const GAP_DURATION = 2;
+  const CYCLE_DURATION = DISPLAY_DURATION + GAP_DURATION;
+  const midpoint = totalDuration / 2;
+
+  // Build a map from affirmation text to shot data for audio resolution
+  const affirmationToShot = new Map<string, typeof shots[0] & { index: number }>();
   for (let i = 0; i < shots.length; i++) {
-    const shot = shots[i];
-    const hasRecordedAudio = !!shot.narrationAudioDataUrl;
+    const text = shots[i].affirmation.trim();
+    if (text && !affirmationToShot.has(text)) {
+      affirmationToShot.set(text, { ...shots[i], index: i });
+    }
+  }
 
-    if (hasRecordedAudio) {
-      // Decode data-url to file (mirrors V1 logic)
-      const mimeMatch = shot.narrationAudioDataUrl!.match(/^data:([^;]+);base64,(.+)$/);
-      if (!mimeMatch) continue;
+  // Resolve audio for both pair members
+  const resolveAudio = async (affirmation: string, label: string): Promise<{
+    audioPath: string;
+    sourceType: 'recorded' | 'tts';
+    clipDuration: number;
+  } | undefined> => {
+    const shot = affirmationToShot.get(affirmation);
+    if (!shot) return undefined;
 
-      const ext = mimeMatch[1].includes('webm') ? 'webm' : 'mp3';
-      const audioPath = path.join(tempDir, `narration-v2-${i}.${ext}`);
-      await fs.writeFile(audioPath, Buffer.from(mimeMatch[2], 'base64'));
+    // Try recorded audio first
+    if (shot.narrationAudioDataUrl) {
+      const mimeMatch = shot.narrationAudioDataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (mimeMatch) {
+        const ext = mimeMatch[1].includes('webm') ? 'webm' : 'mp3';
+        const audioPath = path.join(tempDir, `narration-v2-${label}-${shot.index}.${ext}`);
+        await fs.writeFile(audioPath, Buffer.from(mimeMatch[2], 'base64'));
+        try {
+          const { stdout } = await execAsync(
+            `ffprobe -v quiet -show_entries format=duration -of csv=p=0 ${shellQuote(audioPath)}`,
+          );
+          return { audioPath, sourceType: 'recorded', clipDuration: parseFloat(stdout.trim()) || 0 };
+        } catch {
+          return { audioPath, sourceType: 'recorded', clipDuration: 0 };
+      }
+    }
+  }
 
-      const durationSec = (shot.narrationDurationMs ?? shot.durationSec * 1000) / 1000;
-      tracks.push({
-        path: audioPath,
-        start: 0,
-        duration: durationSec,
-        clipDuration: shot.durationSec,
-        repeat: durationSec < shot.durationSec,
-        sourceType: 'recorded',
-      });
-    } else if (generators.audioGenerator) {
-      // TTS fallback
+    // TTS fallback
+    if (generators.audioGenerator) {
       try {
         const audioPath = await generators.audioGenerator.synthesize(
-          tempDir, i, shot.affirmation,
+          tempDir, shot.index, affirmation,
         );
-        // Get audio duration
         const { stdout } = await execAsync(
           `ffprobe -v quiet -show_entries format=duration -of csv=p=0 ${shellQuote(audioPath)}`,
         );
-        const durationSec = parseFloat(stdout.trim()) || shot.durationSec;
-
-        tracks.push({
-          path: audioPath,
-          start: 0,
-          duration: durationSec,
-          clipDuration: shot.durationSec,
-          repeat: durationSec < shot.durationSec,
-          sourceType: 'tts',
-        });
+        const clipDuration = parseFloat(stdout.trim()) || 0;
+        return { audioPath, sourceType: 'tts', clipDuration };
       } catch {
-        // TTS failure is non-fatal
+        return undefined;
       }
+    }
+
+    return undefined;
+  };
+
+  const audioA = await resolveAudio(affirmationA, 'A');
+  const audioB = affirmationB !== affirmationA
+    ? await resolveAudio(affirmationB, 'B')
+    : audioA
+      ? { ...audioA, clipDuration: audioA.clipDuration }
+      : undefined;
+
+  const tracks: NarrationTrackV2[] = [];
+
+  // First half: cycle affirmation A
+  if (audioA && audioA.clipDuration > 0) {
+    let currentTime = 0;
+    while (currentTime + DISPLAY_DURATION <= midpoint) {
+      tracks.push({
+        path: audioA.audioPath,
+        start: currentTime,
+        duration: DISPLAY_DURATION,
+        clipDuration: audioA.clipDuration,
+        repeat: false,
+        sourceType: audioA.sourceType,
+      });
+      currentTime += CYCLE_DURATION;
+    }
+  }
+
+  // Second half: cycle affirmation B
+  if (audioB && audioB.clipDuration > 0) {
+    let currentTime = midpoint;
+    while (currentTime + DISPLAY_DURATION <= totalDuration) {
+      tracks.push({
+        path: audioB.audioPath,
+        start: currentTime,
+        duration: DISPLAY_DURATION,
+        clipDuration: audioB.clipDuration,
+        repeat: false,
+        sourceType: audioB.sourceType,
+      });
+      currentTime += CYCLE_DURATION;
     }
   }
 

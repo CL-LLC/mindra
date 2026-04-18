@@ -151,13 +151,14 @@ async function testNarrationParity() {
   );
   assert.ok(v2Source.includes("buildNarrationTracks"),
     "V2 pipeline should reference buildNarrationTracks");
-  assert.ok(!v2Source.includes("selectAffirmationPair"),
-    "V2 pipeline should NOT reference selectAffirmationPair (no pair cycling)");
-  console.log("  V2 buildNarrationTracks: per-shot, no pairing (confirmed via source)");
-  console.log("  📊 GAP-3 Status: OPEN — V2 does not implement pair-cycling strategy");
+  assert.ok(v2Source.includes("selectAffirmationPair"),
+    "V2 pipeline should now reference selectAffirmationPair for pair cycling");
+  assert.ok(v2Source.includes("CYCLE_DURATION") || v2Source.includes("DISPLAY_DURATION"),
+    "V2 pipeline should implement pair-cycling timing constants");
+  console.log("  V2 buildNarrationTracks: pair-cycling with selectAffirmationPair (confirmed via source)");
+  console.log("  📊 GAP-3 Status: CLOSED ✅ — V2 now implements pair-cycling strategy");
   console.log("     V1 cycles 2 affirmation pairs across first/second half of video");
-  console.log("     V2 narrates each shot individually (4 tracks for 4 shots)");
-  console.log("     Parity impact: Different audio placement and timing");
+  console.log("     V2 now uses same selectAffirmationPair + DISPLAY/GAP timing");
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +285,7 @@ async function main() {
 
     console.log("\n=== Batch 2 Summary ===");
     console.log("GAP-2 (bg URLs):     CLOSED ✅");
-    console.log("GAP-3 (narration):   OPEN ❌ — pair-cycling not implemented in V2");
+    console.log("GAP-3 (narration):   CLOSED ✅ — pair-cycling now implemented in V2");
     console.log("GAP-4 (text overlay): CLOSED ✅");
     console.log("GAP-1 (kaleidoscope): CLOSED ✅ (Batch 1 + fix)");
     console.log("GAP-5 (ffmpeg preset): PARTIAL — hardcoded medium");
