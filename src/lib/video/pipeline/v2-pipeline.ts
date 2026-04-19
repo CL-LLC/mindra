@@ -36,7 +36,9 @@ const execAsync = promisify(execCb);
 
 const PYTHON = process.env.PYTHON || 'python3';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
+const IMAGE_PROVIDER = (process.env.MINDRA_IMAGE_PROVIDER || 'openai') as 'openai' | 'qwen' | 'flux';
+const OPENAI_IMAGE_MODEL = process.env.MINDRA_IMAGE_MODEL || process.env.OPENAI_IMAGE_MODEL || (IMAGE_PROVIDER === 'qwen' ? 'Qwen-Image' : IMAGE_PROVIDER === 'flux' ? 'FLUX.2 klein' : 'gpt-image-1');
+const IMAGE_BACKEND = (process.env.MINDRA_IMAGE_BACKEND || 'openai') as 'openai' | 'local';
 
 /** Generate a synthetic fallback music track via ffmpeg (V1 parity). */
 async function ensureFallbackMusicAsset(
@@ -92,6 +94,8 @@ async function buildNarrationTracks(
 ): Promise<NarrationTrackV2[]> {
   const generators = createVideoGenerators({
     openaiClient: getOpenAIClient(),
+    imageBackend: IMAGE_BACKEND,
+    imageProvider: IMAGE_PROVIDER,
     imageModel: OPENAI_IMAGE_MODEL,
     ttsModel: process.env.MINDRA_TTS_MODEL || 'tts-1',
     ttsVoice: process.env.MINDRA_TTS_VOICE || 'alloy',
@@ -292,6 +296,7 @@ export class V2Pipeline implements RenderPipeline {
     const opts = { ...DEFAULT_OPTIONS, ...options };
     const generators = createVideoGenerators({
       openaiClient: getOpenAIClient(),
+      imageBackend: IMAGE_BACKEND,
       imageModel: OPENAI_IMAGE_MODEL,
       ttsModel: process.env.MINDRA_TTS_MODEL || 'tts-1',
       ttsVoice: process.env.MINDRA_TTS_VOICE || 'alloy',

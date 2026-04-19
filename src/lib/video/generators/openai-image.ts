@@ -3,12 +3,22 @@ import path from 'path';
 import OpenAI from 'openai';
 import type { ImageGenerator, RenderSceneImageParams } from './types';
 
+export type ImageBackend = 'openai' | 'local';
+
+export type ImageProvider = 'openai' | 'qwen' | 'flux' | 'modal-flux';
+
+const FALLBACK_ONLY_BACKENDS: ImageBackend[] = ['local'];
+
+export interface ImageGeneratorConfig {
+  backend: ImageBackend;
+  provider: ImageProvider;
+  model: string;
+  openaiClient: OpenAI | null;
+  fallbackRenderer: (outputPath: string, prompt: string, width: number, height: number) => Promise<void>;
+}
+
 export class OpenAIImageGenerator implements ImageGenerator {
-  constructor(
-    private readonly openaiClient: OpenAI | null,
-    private readonly imageModel: string,
-    private readonly fallbackRenderer: (outputPath: string, prompt: string, width: number, height: number) => Promise<void>
-  ) {}
+  constructor(private readonly config: ImageGeneratorConfig) {}
 
   async generate(params: RenderSceneImageParams): Promise<string | undefined> {
     const { prompt, tempDir, index, width, height } = params;
@@ -16,10 +26,11 @@ export class OpenAIImageGenerator implements ImageGenerator {
     const fallbackPath = path.join(tempDir, `generated-${index}-fallback.png`);
     const size = width >= height ? '1024x1024' : '1024x1536';
 
-    if (this.openaiClient) {
+    if (!FALLBACK_ONLY_BACKENDS.includes(this.config.backend) && this.config.openaiClient) {
       try {
-        const response: any = await (this.openaiClient as any).images.generate({
-          model: this.imageModel,
+        const model = this.config.model || (this.config.provider === 'qwen' ? 'Qwen-Image' : this.config.provider === 'flux' ? 'FLUX.2 klein' : this.config.provider === 'modal-flux' ? 'FLUX.2 klein 4B' : 'gpt-image-1');
+        const response: any = await (this.config.openaiClient as any).images.generate({
+          model,
           prompt: `Cinematic scene image for video production. Depict the scene faithfully: ${prompt}. No text, no watermark, rich lighting, realistic composition.`,
           size,
         });
@@ -41,11 +52,11 @@ export class OpenAIImageGenerator implements ImageGenerator {
           }
         }
       } catch (error) {
-        console.warn('OpenAI image generation failed; falling back to local poster render.', error);
+        console.warn('Image backend failed; falling back to local poster render.', error);
       }
     }
 
-    await this.fallbackRenderer(fallbackPath, prompt, width, height);
+    await this.config.fallbackRenderer(fallbackPath, prompt, width, height);
     return fallbackPath;
   }
 }
