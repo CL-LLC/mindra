@@ -21,9 +21,11 @@ export function getPipeline(): RenderPipeline {
   switch (version) {
     case 2:
       _cachedPipeline = new V2Pipeline();
+      console.log(`[mindra] Pipeline V2 selected (MINDRA_PIPELINE_VERSION=${version})`);
       break;
     default:
       _cachedPipeline = new V1Pipeline();
+      console.log(`[mindra] Pipeline V1 selected (MINDRA_PIPELINE_VERSION=${version})`);
   }
 
   return _cachedPipeline;

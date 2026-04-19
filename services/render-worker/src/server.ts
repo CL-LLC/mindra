@@ -5,7 +5,7 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { renderVideo } from '../../../src/lib/video/render-executor';
+import { getPipeline } from '../../../src/lib/video/pipeline';
 import type { RenderJobPayload } from './types';
 
 function requireEnv(name: string): string {
@@ -82,7 +82,8 @@ async function runJob(payload: RenderJobPayload) {
     musicTrack: payload.options?.musicTrack,
   };
 
-  const videoBuffer = await renderVideo(payload.scenes, options);
+  const pipeline = getPipeline();
+  const { videoBuffer } = await pipeline.render(payload.scenes, options);
   const key = `mind-movies/${payload.mindMovieId}/${randomUUID()}.mp4`;
 
   const client = new S3Client({
