@@ -126,6 +126,7 @@ async function buildNarrationTracks(
     const text = shots[i].affirmation.trim();
     if (text && !affirmationToShot.has(text)) {
       affirmationToShot.set(text, { ...shots[i], index: i });
+      console.log(`[mindra] audio-map shot=${i} text="${text.slice(0, 48)}" recorded=${!!shots[i].narrationAudioDataUrl}`);
     }
   }
 
@@ -135,8 +136,21 @@ async function buildNarrationTracks(
     sourceType: 'recorded' | 'tts';
     clipDuration: number;
   } | undefined> => {
-    const shot = affirmationToShot.get(affirmation);
-    if (!shot) return undefined;
+    let shot = affirmationToShot.get(affirmation);
+    if (!shot) {
+      const normalized = affirmation.trim().toLowerCase();
+      for (const [key, value] of affirmationToShot.entries()) {
+        if (key.toLowerCase() === normalized) {
+          shot = value;
+          console.log(`[mindra] audio-match label=${label} exact-miss using-casefold shot=${value.index}`);
+          break;
+        }
+      }
+    }
+    if (!shot) {
+      console.warn(`[mindra] audio-miss label=${label} affirmation="${affirmation.slice(0, 48)}"`);
+      return undefined;
+    }
 
     // Try recorded audio first
     if (shot.narrationAudioDataUrl) {
@@ -149,19 +163,21 @@ async function buildNarrationTracks(
           const { stdout } = await execAsync(
             `ffprobe -v quiet -show_entries format=duration -of csv=p=0 ${shellQuote(audioPath)}`,
           );
-          return { audioPath, sourceType: 'recorded', clipDuration: parseFloat(stdout.trim()) || 0 };
+          const clipDuration = parseFloat(stdout.trim()) || 0;
+          console.log(`[mindra] audio recorded label=${label} shot=${shot.index} duration=${clipDuration.toFixed(2)}s`);
+          return { audioPath, sourceType: 'recorded', clipDuration };
         } catch {
+          console.log(`[mindra] audio recorded label=${label} shot=${shot.index} duration=unknown`);
           return { audioPath, sourceType: 'recorded', clipDuration: 0 };
+        }
       }
     }
-  }
 
     // TTS fallback
+    console.warn(`[mindra] audio tts label=${label} shot=${shot.index} affirmation="${affirmation.slice(0, 48)}"`);
     if (generators.audioGenerator) {
       try {
-        const audioPath = await generators.audioGenerator.synthesize(
-          tempDir, shot.index, affirmation,
-        );
+        const audioPath = await generators.audioGenerator.synthesize(tempDir, shot.index, affirmation);
         const { stdout } = await execAsync(
           `ffprobe -v quiet -show_entries format=duration -of csv=p=0 ${shellQuote(audioPath)}`,
         );
