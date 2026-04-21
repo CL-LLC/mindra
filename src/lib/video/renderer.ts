@@ -116,17 +116,6 @@ export function generateEditlyConfig(
           color: '#0f172a', // Slate-900
         }]),
         
-        // Text overlay layer
-        {
-          type: 'title',
-          text: scene.affirmation,
-          position: scene.textOverlay?.position ?? 'center',
-          textColor: '#ffffff',
-          fontPath: '/fonts/inter-bold.ttf',
-          fontSize: config.height * 0.06, // 6% of height
-          fontWeight: scene.textOverlay?.style ?? 'bold',
-        },
-        
         // Ken Burns effect (subtle zoom)
         {
           type: 'detached',

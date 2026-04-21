@@ -27,6 +27,8 @@ export interface V2PipelineDeps {
   buildNarrationTracks: (
     shots: { affirmation: string; narrationAudioDataUrl?: string; narrationMimeType?: string; narrationDurationMs?: number; durationSec: number }[],
     tempDir: string,
+    introDurationSec?: number,
+    outroDurationSec?: number,
   ) => Promise<NarrationTrackV2[]>;
   /** Resolved music asset config and local file path */
   musicAsset?: MusicAssetConfig;
@@ -67,7 +69,13 @@ export async function runV2Pipeline(
     animateResults.push(clip);
   }
 
-  // 3. Narration tracks
+  // 3. Compute durations first (needed for narration track timing)
+  const introDurationSec = deps.introPath ? (deps.introDurationSec ?? 0) : 0;
+  const outroDurationSec = deps.outroPath ? (deps.outroDurationSec ?? 0) : 0;
+  const mainDurationSec = animateResults.reduce((sum, c) => sum + c.durationSec, 0);
+  const totalDurationSec = introDurationSec + mainDurationSec + outroDurationSec;
+
+  // 4. Narration tracks (receives intro/outro durations for accurate timing)
   const narrationTracks = await deps.buildNarrationTracks(
     plan.shots.map((s, i) => ({
       affirmation: s.affirmation,
@@ -77,13 +85,9 @@ export async function runV2Pipeline(
       durationSec: s.durationSec,
     })),
     tempDir,
+    introDurationSec,
+    outroDurationSec,
   );
-
-  // 4. Total duration (V1 parity: includes intro + main + outro)
-  const introDurationSec = deps.introPath ? (deps.introDurationSec ?? 0) : 0;
-  const outroDurationSec = deps.outroPath ? (deps.outroDurationSec ?? 0) : 0;
-  const mainDurationSec = animateResults.reduce((sum, c) => sum + c.durationSec, 0);
-  const totalDurationSec = introDurationSec + mainDurationSec + outroDurationSec;
 
   // 5. Assemble
   // NOTE: intro/outro and music path resolution is the caller's responsibility
