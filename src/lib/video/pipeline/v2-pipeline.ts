@@ -94,9 +94,6 @@ async function buildNarrationTracks(
 ): Promise<NarrationTrackV2[]> {
   const generators = createVideoGenerators({
     openaiClient: getOpenAIClient(),
-    imageBackend: IMAGE_BACKEND,
-    imageProvider: IMAGE_PROVIDER,
-    imageModel: OPENAI_IMAGE_MODEL,
     ttsModel: process.env.MINDRA_TTS_MODEL || 'tts-1',
     ttsVoice: process.env.MINDRA_TTS_VOICE || 'alloy',
     pythonCommand: PYTHON,
@@ -154,23 +151,29 @@ async function buildNarrationTracks(
 
     // Try recorded audio first
     if (shot.narrationAudioDataUrl) {
-      const mimeMatch = shot.narrationAudioDataUrl.match(/^data:([^;]+);base64,(.+)$/);
-      if (mimeMatch) {
-        const ext = mimeMatch[1].includes('webm') ? 'webm' : 'mp3';
-        const audioPath = path.join(tempDir, `narration-v2-${label}-${shot.index}.${ext}`);
-        await fs.writeFile(audioPath, Buffer.from(mimeMatch[2], 'base64'));
-        try {
-          const { stdout } = await execAsync(
-            `ffprobe -v quiet -show_entries format=duration -of csv=p=0 ${shellQuote(audioPath)}`,
-          );
-          const clipDuration = parseFloat(stdout.trim()) || 0;
-          console.log(`[mindra] audio recorded label=${label} shot=${shot.index} duration=${clipDuration.toFixed(2)}s`);
-          return { audioPath, sourceType: 'recorded', clipDuration };
-        } catch {
-          console.log(`[mindra] audio recorded label=${label} shot=${shot.index} duration=unknown`);
-          return { audioPath, sourceType: 'recorded', clipDuration: 0 };
-        }
-      }
+      // Parse data-URL loosely (V1 parity: handles empty MIME, codec params, etc.)
+      const prefix = 'base64,';
+      const base64Index = shot.narrationAudioDataUrl.indexOf(prefix);
+      if (shot.narrationAudioDataUrl.startsWith('data:') && base64Index !== -1) {
+        const meta = shot.narrationAudioDataUrl.slice(5, base64Index - 1);
+        const payload = shot.narrationAudioDataUrl.slice(base64Index + prefix.length);
+        if (payload.length > 0) {
+          const ext = meta.includes('webm') ? 'webm' : meta.includes('wav') ? 'wav' : meta.includes('ogg') ? 'ogg' : 'mp3';
+          const audioPath = path.join(tempDir, `narration-v2-${label}-${shot.index}.${ext}`);
+          await fs.writeFile(audioPath, Buffer.from(payload, 'base64'));
+          try {
+            const { stdout } = await execAsync(
+              `ffprobe -v quiet -show_entries format=duration -of csv=p=0 ${shellQuote(audioPath)}`,
+            );
+            const clipDuration = parseFloat(stdout.trim()) || 0;
+            console.log(`[mindra] audio recorded label=${label} shot=${shot.index} duration=${clipDuration.toFixed(2)}s`);
+            return { audioPath, sourceType: 'recorded', clipDuration };
+          } catch {
+            console.log(`[mindra] audio recorded label=${label} shot=${shot.index} duration=unknown`);
+            return { audioPath, sourceType: 'recorded', clipDuration: 0 };
+          }
+        } // payload empty — fall through to TTS
+      } // data-URL parse failed — fall through to TTS
     }
 
     // TTS fallback
@@ -312,8 +315,6 @@ export class V2Pipeline implements RenderPipeline {
     const opts = { ...DEFAULT_OPTIONS, ...options };
     const generators = createVideoGenerators({
       openaiClient: getOpenAIClient(),
-      imageBackend: IMAGE_BACKEND,
-      imageModel: OPENAI_IMAGE_MODEL,
       ttsModel: process.env.MINDRA_TTS_MODEL || 'tts-1',
       ttsVoice: process.env.MINDRA_TTS_VOICE || 'alloy',
       pythonCommand: PYTHON,

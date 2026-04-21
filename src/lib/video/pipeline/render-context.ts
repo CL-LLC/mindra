@@ -37,17 +37,11 @@ import OpenAI from "openai";
 const execAsync = promisify(exec);
 const PYTHON = process.env.PYTHON || "python3";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const IMAGE_PROVIDER = (process.env.MINDRA_IMAGE_PROVIDER || 'openai') as 'openai' | 'qwen' | 'flux';
-const OPENAI_IMAGE_MODEL = process.env.MINDRA_IMAGE_MODEL || process.env.OPENAI_IMAGE_MODEL || (IMAGE_PROVIDER === 'qwen' ? 'Qwen-Image' : IMAGE_PROVIDER === 'flux' ? 'FLUX.2 klein' : 'gpt-image-1');
-const IMAGE_BACKEND = (process.env.MINDRA_IMAGE_BACKEND || "openai") as "openai" | "local";
 const openaiClient = OPENAI_API_KEY
   ? new OpenAI({ apiKey: OPENAI_API_KEY })
   : null;
 const generators = createVideoGenerators({
   openaiClient,
-  imageBackend: IMAGE_BACKEND,
-  imageProvider: IMAGE_PROVIDER,
-  imageModel: OPENAI_IMAGE_MODEL,
   ttsModel: process.env.MINDRA_TTS_MODEL || "tts-1",
   ttsVoice: process.env.MINDRA_TTS_VOICE || "alloy",
   pythonCommand: PYTHON,
