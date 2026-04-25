@@ -13,8 +13,7 @@
 3. Copy the deployed web endpoint into:
    - `MODAL_FLUX_ENDPOINT_URL`
 
-4. Run Mindra with:
-   - `MINDRA_IMAGE_PROVIDER=modal-flux`
+4. Run Mindra with `MODAL_FLUX_ENDPOINT_URL` configured. Video scene image generation now always uses the Modal FLUX endpoint and intentionally does not fall back to OpenAI image models.
 
 Notes:
 - Output is clamped to 1080p max.
