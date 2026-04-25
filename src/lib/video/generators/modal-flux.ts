@@ -20,7 +20,9 @@ export class ModalFluxGenerator implements ImageGenerator {
   }
 
   async generate(params: RenderSceneImageParams): Promise<string | undefined> {
-    if (!this.endpointUrl) return undefined;
+    if (!this.endpointUrl) {
+      throw new Error('Flux image generation is required but MODAL_FLUX_ENDPOINT_URL is not configured. Configure the Modal Flux endpoint; OpenAI image generation is intentionally disabled.');
+    }
 
     const { prompt, tempDir, index, width, height } = params;
     const outputPath = path.join(tempDir, `generated-${index}.png`);

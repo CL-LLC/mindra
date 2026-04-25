@@ -39,11 +39,9 @@ Each provider defines available models:
 - `gpt-4o` - General purpose
 
 **Mindra image backend**
-- `OPENAI_IMAGE_MODEL` - OpenAI image model name, defaults to `gpt-image-1`
-- `MINDRA_IMAGE_PROVIDER` - image provider selector, supports `openai`, `qwen`, `flux`, `modal-flux`
-- `MINDRA_IMAGE_BACKEND` - image backend selector, defaults to `openai`, set to `local` to force the fallback renderer
 - `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, `MODAL_APP_NAME` - Modal deployment credentials and app name
-- `MODAL_FLUX_ENDPOINT_URL` - deployed Modal HTTP endpoint for FLUX.2 klein 4B
+- `MODAL_FLUX_ENDPOINT_URL` - deployed Modal HTTP endpoint for FLUX.2 klein 4B; required for video scene image generation
+- `MODAL_FLUX_API_KEY` - optional bearer token for the deployed Modal endpoint
 
 **OpenRouter Provider**
 - `moonshotai/kimi-k2.5` - Current default model

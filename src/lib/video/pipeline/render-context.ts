@@ -24,7 +24,6 @@ import {
   shellQuote,
 } from "../render-executor";
 import { getMusicAsset, resolveMusicAssetPath } from "../music-registry";
-import { selectAffirmationPair } from "../pair-playback";
 import {
   getKaleidoscopeConfig,
   resolveKaleidoscopeAssetPath,
@@ -32,6 +31,7 @@ import {
 } from "../kaleidoscope-registry";
 import { createVideoGenerators } from "../generators";
 import type { NarrationTrack } from "../generators/types";
+import { buildNarrationTracks } from "../narration-tracks";
 import OpenAI from "openai";
 
 const execAsync = promisify(exec);
@@ -444,105 +444,25 @@ async function buildSceneNarrationTracks(
   scenes: RenderScene[],
   tempDir: string
 ): Promise<NarrationTrack[] | undefined> {
-  const affirmations = [
-    ...new Set(scenes.map((s) => s.affirmation.trim()).filter(Boolean)),
-  ];
-  if (affirmations.length === 0) return undefined;
+  return buildNarrationTracks(scenes, {
+    getDurationSec: (scene) => scene.duration,
+    resolveAudio: async (scene, sceneIndex) => {
+      const narration = await resolveNarrationSource(
+        scene,
+        tempDir,
+        sceneIndex,
+        scene.affirmation
+      );
+      if (!narration) return undefined;
 
-  const totalDuration = scenes.reduce((sum, s) => sum + s.duration, 0);
-  if (totalDuration <= 0) return undefined;
-
-  const { pair } = selectAffirmationPair(affirmations);
-  const [affirmationA, affirmationB] = pair;
-
-  const DISPLAY_DURATION = 8;
-  const GAP_DURATION = 2;
-  const CYCLE_DURATION = DISPLAY_DURATION + GAP_DURATION;
-  const midpoint = totalDuration / 2;
-
-  const affirmationToScene = new Map<string, RenderScene>();
-  for (const scene of scenes) {
-    const text = scene.affirmation.trim();
-    if (text && !affirmationToScene.has(text)) {
-      affirmationToScene.set(text, scene);
-    }
-  }
-
-  const tracks: NarrationTrack[] = [];
-
-  const sourceA = affirmationToScene.get(affirmationA);
-  const sourceB = affirmationToScene.get(affirmationB);
-
-  let audioPathA: string | undefined;
-  let audioPathB: string | undefined;
-  let sourceTypeA: "recorded" | "tts" = "tts";
-  let sourceTypeB: "recorded" | "tts" = "tts";
-  let clipDurationA = 0;
-  let clipDurationB = 0;
-
-  if (sourceA) {
-    const narration = await resolveNarrationSource(
-      sourceA,
-      tempDir,
-      0,
-      affirmationA
-    );
-    if (narration) {
-      audioPathA = narration.path;
-      sourceTypeA = narration.sourceType;
-      clipDurationA = await getMediaDurationSeconds(audioPathA);
-    }
-  }
-
-  if (affirmationB !== affirmationA && sourceB) {
-    const narration = await resolveNarrationSource(
-      sourceB,
-      tempDir,
-      1,
-      affirmationB
-    );
-    if (narration) {
-      audioPathB = narration.path;
-      sourceTypeB = narration.sourceType;
-      clipDurationB = await getMediaDurationSeconds(audioPathB);
-    }
-  } else if (affirmationB === affirmationA) {
-    audioPathB = audioPathA;
-    sourceTypeB = sourceTypeA;
-    clipDurationB = clipDurationA;
-  }
-
-  if (audioPathA && clipDurationA > 0) {
-    let currentTime = 0;
-    while (currentTime + DISPLAY_DURATION <= midpoint) {
-      tracks.push({
-        path: audioPathA,
-        start: currentTime,
-        duration: DISPLAY_DURATION,
-        clipDuration: clipDurationA,
-        repeat: false,
-        sourceType: sourceTypeA,
-      });
-      currentTime += CYCLE_DURATION;
-    }
-  }
-
-  if (audioPathB && clipDurationB > 0) {
-    let currentTime = midpoint;
-    while (currentTime + DISPLAY_DURATION <= totalDuration) {
-      tracks.push({
-        path: audioPathB,
-        start: currentTime,
-        duration: DISPLAY_DURATION,
-        clipDuration: clipDurationB,
-        repeat: false,
-        sourceType: sourceTypeB,
-      });
-      currentTime += CYCLE_DURATION;
-    }
-  }
-
-  return tracks.length ? tracks : undefined;
+      const clipDuration = await getMediaDurationSeconds(narration.path).catch(() => 0);
+      return {
+        path: narration.path,
+        sourceType: narration.sourceType,
+        clipDuration,
+      };
+    },
+  });
 }
 
 async function resolveNarrationSource(

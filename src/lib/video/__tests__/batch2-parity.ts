@@ -116,49 +116,58 @@ async function testBackgroundImageUrlParity() {
 }
 
 // ---------------------------------------------------------------------------
-// TC-04: Narration pair cycling (GAP-3)
+// TC-04: Narration track alignment (GAP-3)
 // ---------------------------------------------------------------------------
 
 async function testNarrationParity() {
-  console.log("\n=== TC-04: Narration Pair Cycling (GAP-3) ===");
+  console.log("\n=== TC-04: Narration Track Alignment (GAP-3) ===");
 
-  // V1 uses selectAffirmationPair from pair-playback.ts
-  // V2 uses buildNarrationTracks in v2-pipeline.ts (per-shot, no pairing)
-  // Let's verify both exist and document the behavioral difference
-
-  const pairPlayback = await import("../pair-playback");
-  assert.ok(typeof pairPlayback.selectAffirmationPair === "function",
-    "V1 selectAffirmationPair should exist");
-
-  // Test V1 pair selection
-  const affirmations = [
-    "I welcome cleansing change",
-    "I am becoming who I truly am",
-    "I am strong and resilient",
-    "I release what no longer serves me",
-  ];
-
-  const { pair } = pairPlayback.selectAffirmationPair(affirmations);
-  assert.strictEqual(pair.length, 2, "Pair should have exactly 2 affirmations");
-  assert.ok(affirmations.includes(pair[0]), "First pair member should be from input");
-  assert.ok(affirmations.includes(pair[1]), "Second pair member should be from input");
-  console.log(`  V1 pair selection: [${pair.map((p: string) => `"${p}"`).join(", ")}]`);
-
-  // V2 buildNarrationTracks is a private function in v2-pipeline.ts,
-  // injected as a dep. Verify it's referenced in the deps wiring.
-  const v2Source = await fs.readFile(
-    path.resolve(__dirname, "../pipeline/v2-pipeline.ts"), "utf-8"
+  const narrationSource = await fs.readFile(
+    path.resolve(__dirname, "../narration-tracks.ts"),
+    "utf-8"
   );
-  assert.ok(v2Source.includes("buildNarrationTracks"),
-    "V2 pipeline should reference buildNarrationTracks");
-  assert.ok(v2Source.includes("selectAffirmationPair"),
-    "V2 pipeline should now reference selectAffirmationPair for pair cycling");
-  assert.ok(v2Source.includes("CYCLE_DURATION") || v2Source.includes("DISPLAY_DURATION"),
-    "V2 pipeline should implement pair-cycling timing constants");
-  console.log("  V2 buildNarrationTracks: pair-cycling with selectAffirmationPair (confirmed via source)");
-  console.log("  📊 GAP-3 Status: CLOSED ✅ — V2 now implements pair-cycling strategy");
-  console.log("     V1 cycles 2 affirmation pairs across first/second half of video");
-  console.log("     V2 now uses same selectAffirmationPair + DISPLAY/GAP timing");
+
+  assert.ok(
+    narrationSource.includes("for (const [index, scene]") || narrationSource.includes("for (let index = 0"),
+    "Shared narration helper should iterate every scene in order"
+  );
+  assert.ok(
+    !narrationSource.includes("selectAffirmationPair"),
+    "Shared narration helper should not collapse narration down to a selected pair"
+  );
+
+  const v1Source = await fs.readFile(
+    path.resolve(__dirname, "../pipeline/render-context.ts"),
+    "utf-8"
+  );
+  const v2Source = await fs.readFile(
+    path.resolve(__dirname, "../pipeline/v2-pipeline.ts"),
+    "utf-8"
+  );
+
+  assert.ok(
+    v1Source.includes("../narration-tracks"),
+    "V1 render context should use the shared narration helper"
+  );
+  assert.ok(
+    v1Source.includes("narrationAudioDataUrl") && v1Source.includes("scene.duration"),
+    "V1 render context should resolve per-scene recordings and use scene timing"
+  );
+  assert.ok(
+    v2Source.includes("../narration-tracks"),
+    "V2 pipeline should use the shared narration helper"
+  );
+  assert.ok(
+    v2Source.includes("narrationAudioDataUrl") && v2Source.includes("durationSec"),
+    "V2 pipeline should resolve per-scene recordings and use shot timing"
+  );
+  assert.ok(
+    !v1Source.includes("selectAffirmationPair") && !v2Source.includes("selectAffirmationPair"),
+    "Neither pipeline should pair-cycle narration tracks anymore"
+  );
+
+  console.log("  ✅ Shared narration strategy is scene-aligned and recording-first");
+  console.log("  📊 GAP-3 Status: OPEN → updated to per-scene narration alignment");
 }
 
 // ---------------------------------------------------------------------------
@@ -285,13 +294,13 @@ async function main() {
 
     console.log("\n=== Batch 2 Summary ===");
     console.log("GAP-2 (bg URLs):     CLOSED ✅");
-    console.log("GAP-3 (narration):   CLOSED ✅ — pair-cycling now implemented in V2");
+    console.log("GAP-3 (narration):   UPDATED ✅ — per-scene narration alignment");
     console.log("GAP-4 (text overlay): CLOSED ✅");
     console.log("GAP-1 (kaleidoscope): CLOSED ✅ (Batch 1 + fix)");
     console.log("GAP-5 (ffmpeg preset): PARTIAL — hardcoded medium");
     console.log("GAP-6 (music):        CLOSED ✅");
     console.log("GAP-7 (cleanup):      CLOSED ✅");
-    console.log("\nOnly GAP-3 remains as a significant parity gap.");
+    console.log("\nNo remaining narration parity gap.");
   } catch (err: any) {
     console.error("\n❌ Test failed:", err.message);
     console.error(err.stack);

@@ -112,6 +112,42 @@ img.save(output_path)
       this.shellQuote(String(params.maxTextWidth)),
     ].join(' ');
 
-    await execAsync(`${this.shellQuote(this.pythonCommand)} ${args}`, { maxBuffer: 10 * 1024 * 1024 });
+    try {
+      await execAsync(`${this.shellQuote(this.pythonCommand)} ${args}`, { maxBuffer: 10 * 1024 * 1024 });
+    } catch (error) {
+      if (this.canRenderWithFfmpegFallback(params, error)) {
+        await this.renderFrameWithFfmpeg(outputPath, params);
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private canRenderWithFfmpegFallback(params: SceneFrameParams, error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return params.text.trim() === '' && /ModuleNotFoundError: No module named 'PIL'/.test(message);
+  }
+
+  private async renderFrameWithFfmpeg(outputPath: string, params: SceneFrameParams): Promise<void> {
+    if (params.backgroundImagePath) {
+      const filter = `scale=${params.width}:${params.height}:force_original_aspect_ratio=increase,crop=${params.width}:${params.height}`;
+      const cmd = [
+        'ffmpeg -y',
+        `-i ${this.shellQuote(params.backgroundImagePath)}`,
+        `-vf ${this.shellQuote(filter)}`,
+        '-frames:v 1',
+        this.shellQuote(outputPath),
+      ].join(' ');
+      await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
+      return;
+    }
+
+    const cmd = [
+      'ffmpeg -y',
+      `-f lavfi -i ${this.shellQuote(`color=c=${params.backgroundColor}:s=${params.width}x${params.height}:d=1`)}`,
+      '-frames:v 1',
+      this.shellQuote(outputPath),
+    ].join(' ');
+    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
   }
 }

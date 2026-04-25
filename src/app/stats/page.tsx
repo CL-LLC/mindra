@@ -66,7 +66,7 @@ export default function StatsPage() {
         <div className="mb-8 p-6 bg-primary-500/10 border border-primary-500/20 rounded-xl">
           <h2 className="text-xl font-semibold mb-2">Welcome back, {user.name || 'Dreamer'}!</h2>
           <p className="text-white/60">
-            Keep going! You're making progress towards your goals.
+            Keep going! You&apos;re making progress towards your goals.
           </p>
         </div>
 

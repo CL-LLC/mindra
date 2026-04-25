@@ -17,6 +17,7 @@ import {
   type V2PipelineDeps,
   type NarrationTrackV2,
 } from '../v2';
+import { buildNarrationTracks as buildSceneNarrationTracks } from '../narration-tracks';
 import { createVideoGenerators } from '../generators';
 import { getMusicAsset, resolveMusicAssetPath } from '../music-registry';
 import {
@@ -36,9 +37,6 @@ const execAsync = promisify(execCb);
 
 const PYTHON = process.env.PYTHON || 'python3';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const IMAGE_PROVIDER = (process.env.MINDRA_IMAGE_PROVIDER || 'openai') as 'openai' | 'qwen' | 'flux';
-const OPENAI_IMAGE_MODEL = process.env.MINDRA_IMAGE_MODEL || process.env.OPENAI_IMAGE_MODEL || (IMAGE_PROVIDER === 'qwen' ? 'Qwen-Image' : IMAGE_PROVIDER === 'flux' ? 'FLUX.2 klein' : 'gpt-image-1');
-const IMAGE_BACKEND = (process.env.MINDRA_IMAGE_BACKEND || 'openai') as 'openai' | 'local';
 
 /** Generate a synthetic fallback music track via ffmpeg (V1 parity). */
 async function ensureFallbackMusicAsset(
@@ -75,11 +73,7 @@ function getOpenAIClient(): OpenAI | null {
   return _openai;
 }
 
-/**
- * Build narration tracks using V1-equivalent pair-cycling strategy.
- * Selects 2 affirmations via selectAffirmationPair, resolves audio for each,
- * then cycles A in the first half and B in the second half with 8s/2s timing.
- */
+/** Build narration tracks in scene order, preferring recorded audio per scene. */
 async function buildNarrationTracks(
   shots: {
     affirmation: string;
@@ -101,141 +95,56 @@ async function buildNarrationTracks(
     fallbackRenderer: async () => {},
   });
 
-  // --- V1 parity: pair-cycling narration ---
-  const affirmations = [...new Set(shots.map((s) => s.affirmation.trim()).filter(Boolean))];
-  if (affirmations.length === 0) return [];
+  return (await buildSceneNarrationTracks(shots, {
+    getDurationSec: (shot) => shot.durationSec,
+    resolveAudio: async (shot, shotIndex) => {
+      const text = shot.affirmation.trim();
+      if (!text) return undefined;
 
-  const totalDuration = shots.reduce((sum, s) => sum + s.durationSec, 0);
-  if (totalDuration <= 0) return [];
+      console.log(`[mindra] audio-map shot=${shotIndex} text="${text.slice(0, 48)}" recorded=${!!shot.narrationAudioDataUrl}`);
 
-  const { selectAffirmationPair } = await import('../pair-playback');
-  const { pair } = selectAffirmationPair(affirmations);
-  const [affirmationA, affirmationB] = pair;
-
-  const DISPLAY_DURATION = 8;
-  const GAP_DURATION = 2;
-  const CYCLE_DURATION = DISPLAY_DURATION + GAP_DURATION;
-  const midpoint = totalDuration / 2;
-
-  // Build a map from affirmation text to shot data for audio resolution
-  const affirmationToShot = new Map<string, typeof shots[0] & { index: number }>();
-  for (let i = 0; i < shots.length; i++) {
-    const text = shots[i].affirmation.trim();
-    if (text && !affirmationToShot.has(text)) {
-      affirmationToShot.set(text, { ...shots[i], index: i });
-      console.log(`[mindra] audio-map shot=${i} text="${text.slice(0, 48)}" recorded=${!!shots[i].narrationAudioDataUrl}`);
-    }
-  }
-
-  // Resolve audio for both pair members
-  const resolveAudio = async (affirmation: string, label: string): Promise<{
-    audioPath: string;
-    sourceType: 'recorded' | 'tts';
-    clipDuration: number;
-  } | undefined> => {
-    let shot = affirmationToShot.get(affirmation);
-    if (!shot) {
-      const normalized = affirmation.trim().toLowerCase();
-      for (const [key, value] of affirmationToShot.entries()) {
-        if (key.toLowerCase() === normalized) {
-          shot = value;
-          console.log(`[mindra] audio-match label=${label} exact-miss using-casefold shot=${value.index}`);
-          break;
+      // Try recorded audio first
+      if (shot.narrationAudioDataUrl) {
+        const prefix = 'base64,';
+        const base64Index = shot.narrationAudioDataUrl.indexOf(prefix);
+        if (shot.narrationAudioDataUrl.startsWith('data:') && base64Index !== -1) {
+          const meta = shot.narrationAudioDataUrl.slice(5, base64Index - 1);
+          const payload = shot.narrationAudioDataUrl.slice(base64Index + prefix.length);
+          if (payload.length > 0) {
+            const ext = meta.includes('webm') ? 'webm' : meta.includes('wav') ? 'wav' : meta.includes('ogg') ? 'ogg' : 'mp3';
+            const audioPath = path.join(tempDir, `narration-v2-${shotIndex}.${ext}`);
+            await fs.writeFile(audioPath, Buffer.from(payload, 'base64'));
+            try {
+              const { stdout } = await execAsync(
+                `ffprobe -v quiet -show_entries format=duration -of csv=p=0 ${shellQuote(audioPath)}`,
+              );
+              const clipDuration = parseFloat(stdout.trim()) || 0;
+              console.log(`[mindra] audio recorded shot=${shotIndex} duration=${clipDuration.toFixed(2)}s`);
+              return { path: audioPath, sourceType: 'recorded', clipDuration };
+            } catch {
+              console.log(`[mindra] audio recorded shot=${shotIndex} duration=unknown`);
+              return { path: audioPath, sourceType: 'recorded', clipDuration: 0 };
+            }
+          }
         }
       }
-    }
-    if (!shot) {
-      console.warn(`[mindra] audio-miss label=${label} affirmation="${affirmation.slice(0, 48)}"`);
-      return undefined;
-    }
 
-    // Try recorded audio first
-    if (shot.narrationAudioDataUrl) {
-      // Parse data-URL loosely (V1 parity: handles empty MIME, codec params, etc.)
-      const prefix = 'base64,';
-      const base64Index = shot.narrationAudioDataUrl.indexOf(prefix);
-      if (shot.narrationAudioDataUrl.startsWith('data:') && base64Index !== -1) {
-        const meta = shot.narrationAudioDataUrl.slice(5, base64Index - 1);
-        const payload = shot.narrationAudioDataUrl.slice(base64Index + prefix.length);
-        if (payload.length > 0) {
-          const ext = meta.includes('webm') ? 'webm' : meta.includes('wav') ? 'wav' : meta.includes('ogg') ? 'ogg' : 'mp3';
-          const audioPath = path.join(tempDir, `narration-v2-${label}-${shot.index}.${ext}`);
-          await fs.writeFile(audioPath, Buffer.from(payload, 'base64'));
-          try {
-            const { stdout } = await execAsync(
-              `ffprobe -v quiet -show_entries format=duration -of csv=p=0 ${shellQuote(audioPath)}`,
-            );
-            const clipDuration = parseFloat(stdout.trim()) || 0;
-            console.log(`[mindra] audio recorded label=${label} shot=${shot.index} duration=${clipDuration.toFixed(2)}s`);
-            return { audioPath, sourceType: 'recorded', clipDuration };
-          } catch {
-            console.log(`[mindra] audio recorded label=${label} shot=${shot.index} duration=unknown`);
-            return { audioPath, sourceType: 'recorded', clipDuration: 0 };
-          }
-        } // payload empty — fall through to TTS
-      } // data-URL parse failed — fall through to TTS
-    }
+      // TTS fallback
+      if (!generators.audioGenerator) return undefined;
 
-    // TTS fallback
-    console.warn(`[mindra] audio tts label=${label} shot=${shot.index} affirmation="${affirmation.slice(0, 48)}"`);
-    if (generators.audioGenerator) {
+      console.warn(`[mindra] audio tts shot=${shotIndex} affirmation="${text.slice(0, 48)}"`);
       try {
-        const audioPath = await generators.audioGenerator.synthesize(tempDir, shot.index, affirmation);
+        const audioPath = await generators.audioGenerator.synthesize(tempDir, shotIndex, text);
         const { stdout } = await execAsync(
           `ffprobe -v quiet -show_entries format=duration -of csv=p=0 ${shellQuote(audioPath)}`,
         );
         const clipDuration = parseFloat(stdout.trim()) || 0;
-        return { audioPath, sourceType: 'tts', clipDuration };
+        return { path: audioPath, sourceType: 'tts', clipDuration };
       } catch {
         return undefined;
       }
-    }
-
-    return undefined;
-  };
-
-  const audioA = await resolveAudio(affirmationA, 'A');
-  const audioB = affirmationB !== affirmationA
-    ? await resolveAudio(affirmationB, 'B')
-    : audioA
-      ? { ...audioA, clipDuration: audioA.clipDuration }
-      : undefined;
-
-  const tracks: NarrationTrackV2[] = [];
-
-  // First half: cycle affirmation A
-  if (audioA && audioA.clipDuration > 0) {
-    let currentTime = 0;
-    while (currentTime + DISPLAY_DURATION <= midpoint) {
-      tracks.push({
-        path: audioA.audioPath,
-        start: currentTime,
-        duration: DISPLAY_DURATION,
-        clipDuration: audioA.clipDuration,
-        repeat: false,
-        sourceType: audioA.sourceType,
-      });
-      currentTime += CYCLE_DURATION;
-    }
-  }
-
-  // Second half: cycle affirmation B
-  if (audioB && audioB.clipDuration > 0) {
-    let currentTime = midpoint;
-    while (currentTime + DISPLAY_DURATION <= totalDuration) {
-      tracks.push({
-        path: audioB.audioPath,
-        start: currentTime,
-        duration: DISPLAY_DURATION,
-        clipDuration: audioB.clipDuration,
-        repeat: false,
-        sourceType: audioB.sourceType,
-      });
-      currentTime += CYCLE_DURATION;
-    }
-  }
-
-  return tracks;
+    },
+  })) ?? [];
 }
 
 // --- Kaleidoscope intro/outro clip generation (V1 parity) ---
