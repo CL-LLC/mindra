@@ -7,41 +7,16 @@ import { randomUUID } from 'node:crypto';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getPipeline } from '../../../src/lib/video/pipeline';
 import type { RenderJobPayload } from './types';
+import { bearer, constantTimeEqual, fetchWithTimeout, readJsonBody, RenderJobDedupe } from './server-utils';
+
+const MAX_BODY_BYTES = 10 * 1024 * 1024;
+const WEBHOOK_TIMEOUT_MS = 30_000;
+const renderJobDedupe = new RenderJobDedupe();
 
 function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing required env: ${name}`);
   return v;
-}
-
-function bearer(req: http.IncomingMessage): string | null {
-  const auth = req.headers.authorization;
-  if (!auth?.toLowerCase().startsWith('bearer ')) return null;
-  return auth.slice(7).trim();
-}
-
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let x = 0;
-  for (let i = 0; i < a.length; i++) x |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return x === 0;
-}
-
-function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (c) => chunks.push(c as Buffer));
-    req.on('end', () => {
-      try {
-        const raw = Buffer.concat(chunks).toString('utf8');
-        if (!raw) return resolve({});
-        resolve(JSON.parse(raw));
-      } catch (e) {
-        reject(e);
-      }
-    });
-    req.on('error', reject);
-  });
 }
 
 function jsonResponse(res: http.ServerResponse, status: number, body: unknown) {
@@ -53,14 +28,14 @@ async function postConvex(path: string, payload: Record<string, unknown>) {
   const base = requireEnv('CONVEX_SITE_URL').replace(/\/$/, '');
   const secret = requireEnv('RENDER_WEBHOOK_SECRET');
   const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
-  const r = await fetch(url, {
+  const r = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${secret}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
-  });
+  }, WEBHOOK_TIMEOUT_MS);
   if (!r.ok) {
     const t = await r.text();
     throw new Error(`Convex webhook ${path} failed: ${r.status} ${t}`);
@@ -132,15 +107,23 @@ const server = http.createServer(async (req, res) => {
 
     let raw: unknown;
     try {
-      raw = await readJsonBody(req);
-    } catch {
-      jsonResponse(res, 400, { error: 'Invalid JSON' });
+      raw = await readJsonBody(req, MAX_BODY_BYTES);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Invalid JSON';
+      jsonResponse(res, message.includes('too large') ? 413 : 400, {
+        error: message.includes('too large') ? message : 'Invalid JSON',
+      });
       return;
     }
 
     const body = raw as Partial<RenderJobPayload>;
     if (!body.mindMovieId || !body.renderJobId || !Array.isArray(body.scenes)) {
       jsonResponse(res, 400, { error: 'Missing mindMovieId, renderJobId, or scenes' });
+      return;
+    }
+
+    if (!renderJobDedupe.markAccepted(body.renderJobId)) {
+      jsonResponse(res, 202, { accepted: true, duplicate: true, renderJobId: body.renderJobId });
       return;
     }
 
@@ -165,6 +148,8 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         console.error('[render-worker] fail webhook error', e);
       }
+    }).finally(() => {
+      renderJobDedupe.markFinished(payload.renderJobId);
     });
   } catch (e) {
     console.error(e);

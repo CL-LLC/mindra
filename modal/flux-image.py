@@ -2,7 +2,7 @@ import os
 from io import BytesIO
 
 import modal
-from fastapi import Response
+from fastapi import Request, Response
 
 MODEL_NAME = os.environ.get('FLUX_MODEL_NAME', 'black-forest-labs/FLUX.2-klein')
 CACHE_DIR = '/cache'
@@ -41,12 +41,13 @@ class FluxImageGenerator:
         self.pipe.to('cuda')
 
     @modal.web_endpoint(method='POST')
-    def generate(self, req: dict):
+    async def generate(self, request: Request):
         token_secret = os.environ.get('MODAL_TOKEN_SECRET', '')
-        auth = req.get('_auth', '') or req.get('authorization', '') or req.get('Authorization', '')
+        auth = request.headers.get('authorization', '')
         if token_secret and auth != f'Bearer {token_secret}':
             return Response(content='{"error":"Unauthorized"}', status_code=401, media_type='application/json')
 
+        req = await request.json()
         prompt = (req.get('prompt') or '').strip()
         if not prompt:
             return Response(content='{"error":"Missing prompt"}', status_code=400, media_type='application/json')

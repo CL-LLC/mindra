@@ -285,7 +285,7 @@ async function testV1AssemblerAudioTimingParity() {
 }
 
 // ---------------------------------------------------------------------------
-// Test: Pipeline factory defaults to V1
+// Test: Pipeline factory uses V2 by default
 // ---------------------------------------------------------------------------
 
 async function testPipelineFactoryDefault() {
@@ -295,7 +295,7 @@ async function testPipelineFactoryDefault() {
   delete process.env.MINDRA_PIPELINE_VERSION;
 
   const pipeline = getPipeline();
-  assert.strictEqual(pipeline.version, 1, "Default should be V1");
+  assert.strictEqual(pipeline.version, 2, "Default should be V2");
 
   process.env.MINDRA_PIPELINE_VERSION = original;
   resetPipeline();

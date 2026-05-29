@@ -85,6 +85,8 @@ export default function WatchPage() {
   const canWatch = isReady && playable;
   const statusCopy = legacyBlocked
     ? t('movie.legacyVideoBody')
+    : movie.status === 'ready' && !hasVideo
+      ? 'This Mind Movie is marked ready, but no video URL is attached yet. Refresh status; if it stays this way, the render completion callback likely failed.'
     : movie.status === 'ready'
       ? 'This Mind Movie is ready to watch.'
       : movie.status === 'rendering'
@@ -145,6 +147,11 @@ export default function WatchPage() {
                 <AlertCircle className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
                 <p className="text-slate-100 text-lg font-medium mb-2">Watch is unavailable</p>
                 <p className="text-slate-400 text-sm mb-5">{statusCopy}</p>
+                {movie.status === 'ready' && movie.videoUrl?.startsWith('http') && !playable && (
+                  <p className="text-yellow-200/90 text-xs mb-5">
+                    Deployment note: for R2-hosted videos, confirm the bucket public origin allows browser GET requests from this app and any CSP includes the R2 origin in media-src.
+                  </p>
+                )}
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
                   <button
                     onClick={() => router.push(`/mind-movies/${params.id}`)}

@@ -19,6 +19,10 @@ export class ModalFluxGenerator implements ImageGenerator {
     this.maxOutputResolution = config.maxOutputResolution || 1080;
   }
 
+  private clampDimension(value: number): number {
+    return Math.max(64, Math.min(value, this.maxOutputResolution));
+  }
+
   async generate(params: RenderSceneImageParams): Promise<string | undefined> {
     if (!this.endpointUrl) {
       throw new Error('Flux image generation is required but MODAL_FLUX_ENDPOINT_URL is not configured. Configure the Modal Flux endpoint; OpenAI image generation is intentionally disabled.');
@@ -35,8 +39,8 @@ export class ModalFluxGenerator implements ImageGenerator {
       body: JSON.stringify({
         prompt,
         seed: params.index,
-        width: Math.min(width, this.maxOutputResolution),
-        height: Math.min(height, this.maxOutputResolution),
+        width: this.clampDimension(width),
+        height: this.clampDimension(height),
       }),
     });
 

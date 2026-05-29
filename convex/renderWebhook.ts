@@ -1,4 +1,5 @@
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { httpAction } from "./_generated/server";
 
 function bearerToken(request: Request): string | null {
@@ -47,7 +48,7 @@ export const renderComplete = httpAction(async (ctx, request) => {
   }
 
   await ctx.runMutation(internal.mindMovies.completeRenderFromWorker, {
-    mindMovieId: body.mindMovieId as any,
+    mindMovieId: body.mindMovieId as Id<"mindMovies">,
     videoUrl: body.videoUrl,
     affirmationManifest: body.affirmationManifest,
     renderJobId: body.renderJobId,
@@ -75,7 +76,7 @@ export const renderFail = httpAction(async (ctx, request) => {
   }
 
   await ctx.runMutation(internal.mindMovies.failRenderFromWorker, {
-    mindMovieId: body.mindMovieId as any,
+    mindMovieId: body.mindMovieId as Id<"mindMovies">,
     renderJobId: body.renderJobId,
     message: body.message,
   });

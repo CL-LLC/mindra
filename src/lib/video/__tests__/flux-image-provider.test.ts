@@ -89,10 +89,50 @@ async function testFluxRequestAndImageWrite() {
   }
 }
 
+async function testFluxRawPngResponseAndDimensionClamp() {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mindra-flux-raw-test-'));
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const rawPng = Buffer.from('raw-png-bytes');
+
+  try {
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(rawPng, {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      });
+    }) as typeof fetch;
+
+    const generator = new ModalFluxGenerator({ endpointUrl: 'https://flux.example/render', apiKey: 'test-token' });
+    const imagePath = await generator.generate({
+      prompt: 'no text, tiny dimensions should clamp up',
+      tempDir: tmpDir,
+      index: 4,
+      width: 1,
+      height: 2,
+    });
+
+    assert.equal(imagePath, path.join(tmpDir, 'generated-4.png'));
+    assert.deepEqual(await fs.readFile(imagePath!), rawPng);
+
+    const body = JSON.parse(String(calls[0].init?.body));
+    assert.equal(body.width, 64, 'Flux request width should be clamped to the endpoint minimum');
+    assert.equal(body.height, 64, 'Flux request height should be clamped to the endpoint minimum');
+    assert.equal(body.model, undefined, 'Flux endpoint payload must not specify an OpenAI image model');
+
+    console.log('✅ testFluxRawPngResponseAndDimensionClamp passed');
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   await testFluxEndpointRequired();
   await testCreateVideoGeneratorsUsesFluxEvenWhenOpenAIIsPresent();
   await testFluxRequestAndImageWrite();
+  await testFluxRawPngResponseAndDimensionClamp();
 }
 
 main().catch((error) => {

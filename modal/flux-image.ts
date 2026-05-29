@@ -1,3 +1,7 @@
+// DEPRECATED: the active Modal deployment is `modal/flux-image.py`.
+// This file is intentionally kept only as a historical placeholder so old notes
+// that mention a TypeScript Modal endpoint do not silently point to production code.
+// Deploy with: `modal deploy modal/flux-image.py`.
 // @ts-nocheck
 import { App } from 'modal';
 
