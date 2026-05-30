@@ -290,10 +290,10 @@ export function generateAffirmationManifestFromNormalized(
   let currentTime = 0;
   const manifestScenes: AffirmationScene[] = scenes.map((scene) => {
     const affirmationScene: AffirmationScene = {
-      affirmation: scene.affirmation,
+      affirmation: '',
       startTime: currentTime,
       endTime: currentTime + scene.duration,
-      position: 'bottom', // Default to bottom subtitle-like position
+      position: 'bottom', // Keep timing metadata but suppress playback-layer text overlays.
     };
     currentTime += scene.duration;
     return affirmationScene;
