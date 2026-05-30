@@ -26,7 +26,8 @@ export type ScenePlanInput = {
  * Mindra Creative Director scene planner.
  *
  * Decides which scenes are personal-photo anchors and which scenes remain FLUX-generated.
- * Uploaded images should deepen emotional connection, not replace the entire movie.
+ * User uploads are treated as high-priority emotional anchors: show every uploaded image
+ * at least once when scene count allows, while reserving some scenes for FLUX expansion.
  */
 export function buildMindMovieScenePlan(input: ScenePlanInput): ScenePlanEntry[] {
   const scenes = normalizeStoryboard(input.storyboard);
@@ -38,7 +39,8 @@ export function buildMindMovieScenePlan(input: ScenePlanInput): ScenePlanEntry[]
   const exactImages = directImages.filter((image) => image.sceneIndex !== undefined);
   const proportionalImages = directImages.filter((image) => image.sceneIndex === undefined);
   const exactSceneIndexes = new Set(exactImages.map((image) => image.sceneIndex).filter((index): index is number => index !== undefined));
-  const maxAnchorScenes = Math.max(0, Math.ceil(sceneCount * 0.4));
+  const reservedFluxScenes = sceneCount <= 1 ? 0 : Math.max(1, Math.ceil(sceneCount * 0.25));
+  const maxAnchorScenes = Math.max(0, sceneCount - reservedFluxScenes);
   const remainingAnchorSlots = Math.max(0, maxAnchorScenes - exactSceneIndexes.size);
   const selectedProportionalImages = proportionalImages.slice(0, remainingAnchorSlots);
   const freeSceneIndexes = Array.from({ length: sceneCount }, (_, index) => index)
