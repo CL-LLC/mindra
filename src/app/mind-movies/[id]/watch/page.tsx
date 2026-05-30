@@ -36,6 +36,15 @@ export default function WatchPage() {
     setTrackingComplete(false);
   }, [movieId]);
 
+  // Auto-refresh when rendering: poll every 10 seconds so Convex queries re-fetch
+  useEffect(() => {
+    if (movie?.status !== 'rendering') return;
+    const interval = setInterval(() => {
+      router.refresh();
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [movie?.status, router]);
+
   const handleVideoComplete = async () => {
     if (completionRequestedRef.current) return;
     completionRequestedRef.current = true;

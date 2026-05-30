@@ -141,7 +141,9 @@ export const internalCreate = internalMutation({
       v.literal('streak_at_risk'),
       v.literal('streak_lost'),
       v.literal('goal_achieved'),
-      v.literal('level_up')
+      v.literal('level_up'),
+      v.literal('render_ready'),
+      v.literal('render_failed')
     ),
   },
   returns: v.id('notifications'),

@@ -14,6 +14,7 @@ interface MindMoviePlayerProps {
   onComplete?: () => void;
   onClose?: () => void;
   showCloseButton?: boolean;
+  showAffirmationOverlay?: boolean; // Opt-in: visible affirmation text overlay (default off)
 }
 
 export function MindMoviePlayer({
@@ -25,6 +26,7 @@ export function MindMoviePlayer({
   onComplete,
   onClose,
   showCloseButton = false,
+  showAffirmationOverlay = false,
 }: MindMoviePlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -38,8 +40,9 @@ export function MindMoviePlayer({
   const [isLoading, setIsLoading] = useState(true);
   const [currentAffirmation, setCurrentAffirmation] = useState<string | null>(null);
   
-  // Generate pair-playback manifest if affirmations provided
+  // Generate pair-playback manifest if affirmations provided and overlay is enabled
   const pairPlaybackManifest = useMemo<PairPlaybackManifest | null>(() => {
+    if (!showAffirmationOverlay) return null;
     const totalDuration = propDuration || videoDuration;
     if (affirmations && affirmations.length > 0 && totalDuration > 0) {
       // Use default kaleidoscope intro/outro durations (15s each)
@@ -55,7 +58,7 @@ export function MindMoviePlayer({
       );
     }
     return null;
-  }, [affirmations, propDuration, videoDuration]);
+  }, [affirmations, propDuration, videoDuration, showAffirmationOverlay]);
 
   // Reset state when video changes
   useEffect(() => {
@@ -241,8 +244,8 @@ export function MindMoviePlayer({
           preload="metadata"
         />
 
-        {/* Affirmation overlay - bottom subtitle-style for pair-playback */}
-        {currentAffirmation && isPlaying && (
+        {/* Affirmation overlay - bottom subtitle-style for pair-playback (opt-in via showAffirmationOverlay) */}
+        {showAffirmationOverlay && currentAffirmation && isPlaying && (
           <div
             className="absolute bottom-24 left-1/2 -translate-x-1/2 text-center z-20 pointer-events-none"
           >

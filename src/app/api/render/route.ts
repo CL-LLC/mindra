@@ -57,6 +57,8 @@ export async function POST(request: NextRequest) {
       ...movie,
       storyboard: normalizedStoryboard,
       affirmations,
+      voiceRecordings,
+      emotionalImages: movie.emotionalImages,
     };
 
     const scenes = buildScenesForRender(normalizedMovie);

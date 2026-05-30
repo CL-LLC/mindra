@@ -1,16 +1,41 @@
 'use client';
 
-import { FormEvent, useMemo, useState, useEffect } from 'react';
+import { FormEvent, useMemo, useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useConvexAuth, useMutation, useAction, useQuery } from 'convex/react';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle2, Loader2, Sparkles, Wand2, Plus, X, RefreshCw } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Loader2, Sparkles, Wand2, Plus, X, RefreshCw, Image as ImageIcon } from 'lucide-react';
 import { api } from '../../../convex/_generated/api';
+import type { Id } from '../../../convex/_generated/dataModel';
 import { buildDeterministicScaffold } from '@/lib/mindmovie/scaffold';
 import { normalizeStoryboard, toManifestFormat } from '@/lib/mindmovie/storyboard';
 import { generateAffirmationManifestFromNormalized } from '@/lib/video/renderer';
 import { useLanguage } from '@/lib/hooks';
-import { Language } from '@/lib/i18n/dictionary';
+
+/** Allowed mime types for emotional image upload. */
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+type EmotionalImageUpload = {
+  /** Convex storage ID after upload. */
+  storageId: string;
+  /** URL for display (generated after upload completes). */
+  imageUrl: string;
+  /** Index of the goal this image is attached to. */
+  goalIndex: number;
+  /** Optional scene index for exact placement. */
+  sceneIndex?: number;
+  /** Optional caption. */
+  caption?: string;
+  /** Whether to use directly as scene bg or as style reference. */
+  usageMode: 'direct' | 'style_reference' | 'both';
+  /** Local preview URL (Object URL) before upload completion. */
+  previewUrl?: string;
+  /** Whether this image is currently being uploaded. */
+  uploading?: boolean;
+  /** Upload error message if any. */
+  uploadError?: string;
+};
 
 function detectLanguage(texts: string[]) {
   const sample = texts.join(' ').toLowerCase();
@@ -43,6 +68,88 @@ export default function CreatePage() {
   const [stepIndex, setStepIndex] = useState(-1);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Emotional image upload state
+  const [emotionalImages, setEmotionalImages] = useState<EmotionalImageUpload[]>([]);
+  const generateUploadUrl = useMutation(api.mindMovies.generateEmotionalImageUploadUrl);
+  const getEmotionalImageUrl = useMutation(api.mindMovies.getEmotionalImageUrl);
+  const fileInputRefs = useRef<Map<number, HTMLInputElement>>(new Map());
+
+  const handleEmotionalImageSelect = async (goalIndex: number, file: File | null) => {
+    if (!file) return;
+
+    // Validate file type
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setError(`Invalid file type: ${file.type}. Allowed: JPEG, PNG, WebP.`);
+      return;
+    }
+    // Validate file size
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
+      setError(`File too large: ${(file.size / 1024 / 1024).toFixed(1)} MB. Max 5 MB.`);
+      return;
+    }
+
+    setError(null);
+
+    // Create a local preview
+    const previewUrl = URL.createObjectURL(file);
+
+    // Track upload in progress
+    const uploadEntry: EmotionalImageUpload = {
+      storageId: '',
+      imageUrl: '',
+      goalIndex,
+      usageMode: 'both',
+      previewUrl,
+      uploading: true,
+    };
+    setEmotionalImages((prev) => [...prev.filter((e) => e.goalIndex !== goalIndex), uploadEntry]);
+
+    try {
+      // 1. Get upload URL from Convex storage
+      const uploadUrl = await generateUploadUrl();
+
+      // 2. Upload the file directly to Convex storage
+      const response = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`);
+
+      const { storageId } = await response.json() as { storageId: Id<'_storage'> };
+      const imageUrl = await getEmotionalImageUrl({ storageId });
+
+      // Update entry with resolved info
+      setEmotionalImages((prev) =>
+        prev.map((e) =>
+          e.goalIndex === goalIndex
+            ? { ...e, storageId, imageUrl, uploading: false, previewUrl: undefined }
+            : e
+        )
+      );
+    } catch (err: any) {
+      console.error('Emotional image upload failed:', err);
+      // Remove the pending entry on failure
+      setEmotionalImages((prev) => prev.filter((e) => e.goalIndex !== goalIndex));
+      setError(err?.message || 'Image upload failed. Please try again.');
+    } finally {
+      // Clean up preview Object URL after upload completes or fails
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    }
+  };
+
+  const removeEmotionalImage = (goalIndex: number) => {
+    setEmotionalImages((prev) => prev.filter((e) => e.goalIndex !== goalIndex));
+    // Reset file input
+    const input = fileInputRefs.current.get(goalIndex);
+    if (input) input.value = '';
+  };
+
+  const getEmotionalImageForGoal = (goalIndex: number): EmotionalImageUpload | undefined => {
+    return emotionalImages.find((e) => e.goalIndex === goalIndex);
+  };
+  const hasUploadingImages = emotionalImages.some((image) => image.uploading);
 
   const STEPS = [
     t('create.progress.validating'),
@@ -122,7 +229,18 @@ export default function CreatePage() {
         assets, 
         duration: duration || storyboard.length * 10, 
         musicTrack,
-        affirmationManifest // Pass manifest for playback-layer overlay
+        affirmationManifest, // Pass manifest for playback-layer overlay
+        // Pass uploaded emotional image metadata (only fully uploaded entries)
+        emotionalImages: emotionalImages
+          .filter((img) => !img.uploading && img.storageId)
+          .map((img) => ({
+            storageId: img.storageId as Id<'_storage'>,
+            imageUrl: img.imageUrl,
+            caption: img.caption,
+            goalIndex: img.goalIndex,
+            sceneIndex: img.sceneIndex,
+            usageMode: img.usageMode,
+          })),
       });
       setSuccess(t('create.success.ready'));
       setStepIndex(STEPS.length);
@@ -191,6 +309,14 @@ export default function CreatePage() {
       lines.splice(index, 1);
       return lines.join('\n');
     });
+    setEmotionalImages((prev) =>
+      prev
+        .filter((image) => image.goalIndex !== index)
+        .map((image) => ({
+          ...image,
+          goalIndex: image.goalIndex > index ? image.goalIndex - 1 : image.goalIndex,
+        }))
+    );
   };
 
   return (
@@ -241,25 +367,67 @@ export default function CreatePage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  {goalLines.map((goal, index) => (
-                    <div key={index} className="flex items-start gap-2">
-                      <div className="flex-1">
-                        <input value={goal} onChange={(e) => {
-                          const lines = goalsText.split('\n');
-                          lines[index] = e.target.value;
-                          setGoalsText(lines.join('\n'));
-                        }} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-primary-500" />
+                  {goalLines.map((goal, index) => {
+                    const image = getEmotionalImageForGoal(index);
+                    return (
+                      <div key={index} className="flex items-start gap-2">
+                        <div className="flex-1">
+                          <input value={goal} onChange={(e) => {
+                            const lines = goalsText.split('\n');
+                            lines[index] = e.target.value;
+                            setGoalsText(lines.join('\n'));
+                          }} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-primary-500" />
+                          {/* Emotional image preview / upload for this goal */}
+                          <div className="flex items-center gap-2 mt-1.5">
+                            {image && !image.uploading && image.imageUrl ? (
+                              <div className="relative group">
+                                <img src={image.imageUrl} alt={image.caption || `Goal ${index + 1}`} className="w-14 h-14 rounded-lg object-cover border border-white/10" />
+                                <button
+                                  type="button"
+                                  onClick={() => removeEmotionalImage(index)}
+                                  className="absolute -top-1.5 -right-1.5 p-0.5 rounded-full bg-red-500/80 hover:bg-red-500 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ) : image?.uploading ? (
+                              <div className="w-14 h-14 rounded-lg bg-white/10 flex items-center justify-center border border-white/10">
+                                <Loader2 className="w-5 h-5 animate-spin text-primary-400" />
+                              </div>
+                            ) : null}
+                            {(!image || image.uploading) && (
+                              <label className="cursor-pointer flex items-center gap-1 text-xs px-2 py-1 rounded bg-white/10 text-white/70 hover:text-white hover:bg-white/15 transition-colors">
+                                <ImageIcon className="w-3 h-3" />
+                                Add Image
+                                <input
+                                  ref={(el) => { if (el) fileInputRefs.current.set(index, el); }}
+                                  type="file"
+                                  accept="image/jpeg,image/png,image/webp"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0] || null;
+                                    handleEmotionalImageSelect(index, file);
+                                  }}
+                                  disabled={image?.uploading}
+                                />
+                              </label>
+                            )}
+                            {image?.uploadError && (
+                              <span className="text-xs text-red-400">{image.uploadError}</span>
+                            )}
+                          </div>
+                        </div>
+                        <button type="button" onClick={() => removeGoal(index)} className="mt-1 p-2 rounded bg-white/5 text-white/50 hover:text-red-400 hover:bg-white/10"><X className="w-4 h-4" /></button>
                       </div>
-                      <button type="button" onClick={() => removeGoal(index)} className="mt-1 p-2 rounded bg-white/5 text-white/50 hover:text-red-400 hover:bg-white/10"><X className="w-4 h-4" /></button>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {goalLines.length === 0 && (
                     <textarea value={goalsText} onChange={(e) => setGoalsText(e.target.value)} rows={4} placeholder={t('create.goalsPlaceholder')} className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary-500" />
                   )}
                 </div>
               </div>
               <div className="flex flex-wrap gap-3">
-                <button type="button" onClick={() => void runGeneration(title, goals)} disabled={isSubmitting || goals.length === 0} className="bg-primary-500 hover:bg-primary-600 disabled:opacity-60 rounded-lg py-3 px-5 font-semibold flex items-center gap-2">{isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}{t('create.createMindMovie')}</button>
+                <button type="button" onClick={() => void runGeneration(title, goals)} disabled={isSubmitting || hasUploadingImages || goals.length === 0} className="bg-primary-500 hover:bg-primary-600 disabled:opacity-60 rounded-lg py-3 px-5 font-semibold flex items-center gap-2">{isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}{hasUploadingImages ? 'Uploading images...' : t('create.createMindMovie')}</button>
               </div>
             </div>
           )}

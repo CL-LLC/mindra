@@ -10,6 +10,15 @@ const voiceRecordingValidator = v.object({
   durationMs: v.optional(v.number()),
 });
 
+const emotionalImageValidator = v.object({
+  storageId: v.id("_storage"),
+  imageUrl: v.string(),
+  caption: v.optional(v.string()),
+  goalIndex: v.optional(v.number()),
+  sceneIndex: v.optional(v.number()),
+  usageMode: v.union(v.literal("direct"), v.literal("style_reference"), v.literal("both")),
+});
+
 export default defineSchema({
   ...authTables,
   users: defineTable({
@@ -47,6 +56,8 @@ export default defineSchema({
     storyboard: v.any(),
     assets: v.array(v.any()),
     voiceRecordings: v.optional(v.array(voiceRecordingValidator)),
+    /** User-uploaded emotional images stored via Convex storage; lightweight metadata only (no base64). */
+    emotionalImages: v.optional(v.array(emotionalImageValidator)),
     videoUrl: v.optional(v.string()),
     videoStorageId: v.optional(v.id("_storage")),
     thumbnailUrl: v.optional(v.string()),
@@ -99,7 +110,9 @@ export default defineSchema({
       v.literal("streak_at_risk"),
       v.literal("streak_lost"),
       v.literal("goal_achieved"),
-      v.literal("level_up")
+      v.literal("level_up"),
+      v.literal("render_ready"),
+      v.literal("render_failed")
     ),
     sentAt: v.number(),
     opened: v.boolean(),

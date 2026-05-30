@@ -40,7 +40,7 @@ export const getActive = query({ args: {}, handler: async (ctx) => { const userI
 
 export const getById = query({ args: { id: v.id("mindMovies") }, handler: async (ctx, args) => { const userId = await getAuthUserId(ctx); if (!userId) return null; const mindMovie = await ctx.db.get(args.id); if (!mindMovie || mindMovie.userId !== userId) return null; return mindMovie; } });
 
-export const create = mutation({ args: { title: v.string(), language: v.optional(v.union(v.literal('en'), v.literal('es'))), goals: v.array(v.string()), affirmations: v.array(v.string()), storyboard: v.any(), assets: v.array(v.any()), duration: v.number(), musicTrack: v.optional(v.string()), affirmationManifest: v.optional(v.any()) }, returns: v.id("mindMovies"), handler: async (ctx, args) => { const userId = await requireUserId(ctx); const now = Date.now(); const goals = args.goals.map((goal) => goal.trim()).filter(Boolean); const affirmations = args.affirmations.map((affirmation) => affirmation.trim()).filter(Boolean); if (goals.length === 0) throw new Error("At least one goal is required"); if (affirmations.length === 0) throw new Error("At least one affirmation is required"); return await ctx.db.insert("mindMovies", { userId, title: args.title.trim(), language: args.language, version: 1, status: "draft", goals, affirmations, storyboard: args.storyboard, assets: args.assets, voiceRecordings: [], videoUrl: undefined, thumbnailUrl: undefined, duration: args.duration, musicTrack: args.musicTrack, effectivenessScore: undefined, affirmationManifest: args.affirmationManifest, createdAt: now, updatedAt: now }); } });
+export const create = mutation({ args: { title: v.string(), language: v.optional(v.union(v.literal('en'), v.literal('es'))), goals: v.array(v.string()), affirmations: v.array(v.string()), storyboard: v.any(), assets: v.array(v.any()), duration: v.number(), musicTrack: v.optional(v.string()), affirmationManifest: v.optional(v.any()), emotionalImages: v.optional(v.array(v.object({ storageId: v.id("_storage"), imageUrl: v.string(), caption: v.optional(v.string()), goalIndex: v.optional(v.number()), sceneIndex: v.optional(v.number()), usageMode: v.union(v.literal("direct"), v.literal("style_reference"), v.literal("both")) }))) }, returns: v.id("mindMovies"), handler: async (ctx, args) => { const userId = await requireUserId(ctx); const now = Date.now(); const goals = args.goals.map((goal) => goal.trim()).filter(Boolean); const affirmations = args.affirmations.map((affirmation) => affirmation.trim()).filter(Boolean); if (goals.length === 0) throw new Error("At least one goal is required"); if (affirmations.length === 0) throw new Error("At least one affirmation is required"); return await ctx.db.insert("mindMovies", { userId, title: args.title.trim(), language: args.language, version: 1, status: "draft", goals, affirmations, storyboard: args.storyboard, assets: args.assets, voiceRecordings: [], emotionalImages: args.emotionalImages, videoUrl: undefined, thumbnailUrl: undefined, duration: args.duration, musicTrack: args.musicTrack, effectivenessScore: undefined, affirmationManifest: args.affirmationManifest, createdAt: now, updatedAt: now }); } });
 
 export const update = mutation({ args: { id: v.id("mindMovies"), title: v.string(), language: v.optional(v.union(v.literal('en'), v.literal('es'))), goals: v.array(v.string()), affirmations: v.array(v.string()), storyboard: v.any(), assets: v.array(v.any()), duration: v.number() }, returns: v.boolean(), handler: async (ctx, args) => { const userId = await requireUserId(ctx); const mindMovie = await ctx.db.get(args.id); if (!mindMovie || mindMovie.userId !== userId) throw new Error("Mind movie not found or access denied"); const goals = args.goals.map((goal) => goal.trim()).filter(Boolean); const affirmations = args.affirmations.map((affirmation) => affirmation.trim()).filter(Boolean); if (goals.length === 0) throw new Error("At least one goal is required"); if (affirmations.length === 0) throw new Error("At least one affirmation is required"); await ctx.db.patch(args.id, { title: args.title.trim(), language: args.language, goals, affirmations, storyboard: args.storyboard, assets: args.assets, duration: args.duration, status: "draft", videoUrl: undefined, videoStorageId: undefined, thumbnailUrl: undefined, updatedAt: Date.now() }); return true; } });
 
@@ -139,6 +139,14 @@ export const completeRenderFromWorker = internalMutation({
       renderStartedAt: undefined,
       updatedAt: Date.now(),
     });
+    // Notify user that render is ready
+    await ctx.db.insert("notifications", {
+      userId: mindMovie.userId,
+      type: "render_ready",
+      sentAt: Date.now(),
+      opened: false,
+      actionTaken: false,
+    });
     return null;
   },
 });
@@ -167,6 +175,14 @@ export const failRenderFromWorker = internalMutation({
       renderJobId: undefined,
       renderStartedAt: undefined,
       updatedAt: Date.now(),
+    });
+    // Notify user that render failed
+    await ctx.db.insert("notifications", {
+      userId: mindMovie.userId,
+      type: "render_failed",
+      sentAt: Date.now(),
+      opened: false,
+      actionTaken: false,
     });
     return null;
   },
@@ -198,7 +214,49 @@ export const removeVoiceRecording = mutation({
   },
 });
 
-export const updateVideo = mutation({ args: { id: v.id("mindMovies"), videoUrl: v.optional(v.string()), videoStorageId: v.optional(v.id("_storage")), status: v.optional(statusValidator), affirmationManifest: v.optional(v.any()) }, returns: v.boolean(), handler: async (ctx, args) => { const userId = await requireUserId(ctx); const mindMovie = await ctx.db.get(args.id); if (!mindMovie || mindMovie.userId !== userId) throw new Error("Mind movie not found or access denied"); const updates: any = { updatedAt: Date.now() }; if (args.videoUrl !== undefined) updates.videoUrl = args.videoUrl; if (args.videoStorageId !== undefined) updates.videoStorageId = args.videoStorageId; if (args.status !== undefined) updates.status = args.status; if (args.affirmationManifest !== undefined) updates.affirmationManifest = args.affirmationManifest; await ctx.db.patch(args.id, updates); return true; } });
+export const updateVideo = mutation({
+  args: {
+    id: v.id("mindMovies"),
+    videoUrl: v.optional(v.string()),
+    videoStorageId: v.optional(v.id("_storage")),
+    status: v.optional(statusValidator),
+    affirmationManifest: v.optional(v.any()),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const mindMovie = await ctx.db.get(args.id);
+    if (!mindMovie || mindMovie.userId !== userId) throw new Error("Mind movie not found or access denied");
+
+    const updates: any = { updatedAt: Date.now() };
+    if (args.videoUrl !== undefined) updates.videoUrl = args.videoUrl;
+    if (args.videoStorageId !== undefined) updates.videoStorageId = args.videoStorageId;
+    if (args.status !== undefined) updates.status = args.status;
+    if (args.affirmationManifest !== undefined) updates.affirmationManifest = args.affirmationManifest;
+
+    await ctx.db.patch(args.id, updates);
+
+    if (mindMovie.status === "rendering" && args.status === "ready") {
+      await ctx.db.insert("notifications", {
+        userId: mindMovie.userId,
+        type: "render_ready",
+        sentAt: Date.now(),
+        opened: false,
+        actionTaken: false,
+      });
+    } else if (mindMovie.status === "rendering" && args.status === "draft") {
+      await ctx.db.insert("notifications", {
+        userId: mindMovie.userId,
+        type: "render_failed",
+        sentAt: Date.now(),
+        opened: false,
+        actionTaken: false,
+      });
+    }
+
+    return true;
+  },
+});
 
 export const updateAffirmationManifest = mutation({
   args: {
@@ -217,6 +275,28 @@ export const updateAffirmationManifest = mutation({
       updatedAt: Date.now(),
     });
     return true;
+  },
+});
+
+/** Generate a Convex storage upload URL for emotional image upload (client uploads file directly to Convex). */
+export const generateEmotionalImageUploadUrl = mutation({
+  args: {},
+  returns: v.string(),
+  handler: async (ctx) => {
+    await requireUserId(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/** Resolve a Convex storage id to a fetchable URL for previews and render workers. */
+export const getEmotionalImageUrl = mutation({
+  args: { storageId: v.id("_storage") },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    await requireUserId(ctx);
+    const url = await ctx.storage.getUrl(args.storageId);
+    if (!url) throw new Error("Uploaded image is not available yet. Please try again.");
+    return url;
   },
 });
 
