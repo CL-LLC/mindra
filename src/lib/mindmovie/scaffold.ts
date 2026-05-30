@@ -42,7 +42,7 @@ function titleMood(title: string) {
 }
 
 export function buildDeterministicScaffold(title: string, goals: string[], language: string = 'en'): MindMovieScaffold {
-  const safeGoals = goals.map(cleanGoal).filter(Boolean).slice(0, 6);
+  const safeGoals = goals.map(cleanGoal).filter(Boolean).slice(0, 9);
   const mood = titleMood(title);
 
   const affirmations = safeGoals.map((goal) => toAffirmation(goal, language));

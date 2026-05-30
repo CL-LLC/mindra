@@ -88,12 +88,11 @@ function testEmotionalImagesMappedToScenesProportionally() {
 
   assert.strictEqual(scenes.length, 4);
 
-  // 2 images distributed across 4 scenes proportionally
-  // Index 0,1 -> first image (img1), Index 2,3 -> second image (img2)
-  assert.strictEqual(scenes[0].backgroundImageUrl, 'https://example.com/img1.jpg', 'scene 0 should get first emotional image');
-  assert.strictEqual(scenes[1].backgroundImageUrl, 'https://example.com/img1.jpg', 'scene 1 should get first emotional image');
-  assert.strictEqual(scenes[2].backgroundImageUrl, 'https://example.com/img2.jpg', 'scene 2 should get second emotional image');
-  assert.strictEqual(scenes[3].backgroundImageUrl, 'https://example.com/img2.jpg', 'scene 3 should get second emotional image');
+  // 2 images distributed as single-scene anchors across 4 scenes; remaining scenes use FLUX.
+  assert.strictEqual(scenes[0].backgroundImageUrl, 'https://example.com/img1.jpg', 'scene 0 should get first emotional anchor');
+  assert.strictEqual(scenes[1].backgroundImageUrl, undefined, 'scene 1 should remain FLUX generated');
+  assert.strictEqual(scenes[2].backgroundImageUrl, 'https://example.com/img2.jpg', 'scene 2 should get second emotional anchor');
+  assert.strictEqual(scenes[3].backgroundImageUrl, undefined, 'scene 3 should remain FLUX generated');
 
   // Original storyboard imageUrl should be overridden
   assert.notStrictEqual(scenes[0].backgroundImageUrl, scenes[0].imagePrompt);
@@ -111,10 +110,13 @@ function testExactSceneIndexTakesPriority() {
     emotionalImages,
   });
 
-  // Scene 3 should get the exact match, others use proportional images only
+  // Scene 3 should get the exact match; the proportional image fills one anchor slot.
   assert.strictEqual(scenes[3].backgroundImageUrl, 'https://example.com/exact-scene-3.jpg', 'scene 3 should get exact sceneIndex match');
-  assert.strictEqual(scenes[0].backgroundImageUrl, 'https://example.com/proportional.jpg', 'scene 0 should get proportional image');
-  assert.strictEqual(scenes[5].backgroundImageUrl, 'https://example.com/proportional.jpg', 'scene 5 should not reuse exact scene images through proportional fallback');
+  assert.strictEqual(scenes[0].backgroundImageUrl, 'https://example.com/proportional.jpg', 'scene 0 should get proportional anchor image');
+  assert.strictEqual(scenes[1].backgroundImageUrl, undefined, 'scene 1 should remain FLUX generated');
+  assert.strictEqual(scenes[2].backgroundImageUrl, undefined, 'scene 2 should remain FLUX generated');
+  assert.strictEqual(scenes[4].backgroundImageUrl, undefined, 'scene 4 should remain FLUX generated');
+  assert.strictEqual(scenes[5].backgroundImageUrl, undefined, 'scene 5 should not reuse exact scene images through proportional fallback');
 }
 
 function testEmotionalImagesWithBothMode() {
@@ -128,9 +130,10 @@ function testEmotionalImagesWithBothMode() {
     emotionalImages,
   });
 
-  // 'both' mode should also map to backgroundImageUrl
-  assert.strictEqual(scenes[0].backgroundImageUrl, 'https://example.com/img-both.jpg', 'both mode images should map to backgroundImageUrl');
-  assert.strictEqual(scenes[2].backgroundImageUrl, 'https://example.com/img-both.jpg', 'both mode distributes across scenes');
+  // 'both' mode currently means a direct emotional anchor plus future reference potential.
+  assert.strictEqual(scenes[0].backgroundImageUrl, 'https://example.com/img-both.jpg', 'both mode images should map to one emotional anchor');
+  assert.strictEqual(scenes[1].backgroundImageUrl, undefined, 'scene 1 should remain FLUX generated');
+  assert.strictEqual(scenes[2].backgroundImageUrl, undefined, 'scene 2 should remain FLUX generated');
 }
 
 function testStyleReferenceOnlyImagesDoNotMapToBackground() {

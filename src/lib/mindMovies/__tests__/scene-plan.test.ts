@@ -1,0 +1,70 @@
+#!/usr/bin/env npx tsx
+
+import assert from 'assert';
+import { buildMindMovieScenePlan } from '../scene-plan';
+import { buildScenesForRender, EmotionalImageMeta } from '../render-payload';
+
+function storyboard(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    title: `Scene ${index + 1}`,
+    description: `Scene description ${index + 1}`,
+    affirmation: `Fallback ${index + 1}`,
+    duration: 6,
+    imagePrompt: `Image prompt ${index + 1}`,
+  }));
+}
+
+function image(goalIndex: number, url: string): EmotionalImageMeta {
+  return { storageId: `s${goalIndex}`, imageUrl: url, goalIndex, usageMode: 'both' };
+}
+
+function testUploadedImagesBecomeAnchorsNotWholeMovie() {
+  const plan = buildMindMovieScenePlan({
+    storyboard: storyboard(12),
+    affirmations: ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7'],
+    emotionalImages: [0, 1, 2, 3, 4].map((i) => image(i, `https://example.com/${i}.jpg`)),
+  });
+
+  const uploadedScenes = plan.filter((scene) => scene.visualSource === 'uploaded_direct');
+  const fluxScenes = plan.filter((scene) => scene.visualSource === 'flux_generated');
+
+  assert.strictEqual(plan.length, 12);
+  assert.ok(uploadedScenes.length > 0, 'uploaded images should be used as emotional anchors');
+  assert.ok(uploadedScenes.length <= 5, 'uploaded images should be capped to roughly 40% of scenes');
+  assert.ok(fluxScenes.length >= 7, 'FLUX should remain active for most scenes');
+}
+
+function testEveryAffirmationIsRepresentedWhenSceneCountAllowsIt() {
+  const plan = buildMindMovieScenePlan({
+    storyboard: storyboard(10),
+    affirmations: ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'],
+    emotionalImages: [],
+  });
+
+  const used = new Set(plan.map((scene) => scene.affirmationIndex).filter((index) => index !== undefined));
+  assert.deepStrictEqual([...used].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5]);
+}
+
+function testRenderPayloadLeavesFluxScenesWithoutBackgroundImageUrl() {
+  const scenes = buildScenesForRender({
+    storyboard: storyboard(12),
+    affirmations: ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'],
+    emotionalImages: [0, 1, 2, 3, 4].map((i) => image(i, `https://example.com/${i}.jpg`)),
+  });
+
+  const uploadedCount = scenes.filter((scene) => scene.backgroundImageUrl?.startsWith('https://example.com/')).length;
+  const fluxCount = scenes.filter((scene) => scene.backgroundImageUrl === undefined).length;
+
+  assert.ok(uploadedCount > 0, 'some uploaded images should be used');
+  assert.ok(uploadedCount < scenes.length, 'uploaded images must not replace every FLUX scene');
+  assert.ok(fluxCount > uploadedCount, 'FLUX should remain the default visual source');
+}
+
+function main() {
+  testUploadedImagesBecomeAnchorsNotWholeMovie();
+  testEveryAffirmationIsRepresentedWhenSceneCountAllowsIt();
+  testRenderPayloadLeavesFluxScenesWithoutBackgroundImageUrl();
+  console.log('✅ scene-plan tests passed');
+}
+
+main();

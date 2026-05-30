@@ -32,13 +32,14 @@ function detectLanguage(texts: string[]) {
   return spanishScore > englishScore ? 'es' : 'en';
 }
 
-function diversifyAffirmations(goals: string[], affirmations: string[], language: string) {
+function diversifyAffirmations(goals: string[], affirmations: string[], language: string, targetCount: number = 7) {
+  const target = Math.max(4, Math.min(targetCount, 12));
   const identityStarters = language === 'es' ? ["Soy", "Sé", "Confío", "Encajo", "Me convierto"] : ["I am", "I know", "I trust", "I embody", "I become"];
   const actionStarters = language === 'es' ? ["Avanzo", "Construyo", "Elijo", "Creo", "Practico"] : ["I move", "I build", "I choose", "I create", "I practice"];
   const groundingStarters = language === 'es' ? ["Merezco", "Acepto", "Acojo", "Permito", "Honro"] : ["I deserve", "I accept", "I welcome", "I allow", "I honor"];
 
   const cleanedGoals = goals.map((goal) => goal.trim()).filter(Boolean);
-  const goalFocus = cleanedGoals.slice(0, 7);
+  const goalFocus = cleanedGoals.slice(0, Math.min(cleanedGoals.length, 6));
 
   const output: string[] = [];
   const seen = new Set<string>();
@@ -67,7 +68,7 @@ function diversifyAffirmations(goals: string[], affirmations: string[], language
   ];
 
   let idx = 0;
-  while (output.length < 7 && goalFocus.length > 0) {
+  while (output.length < target && goalFocus.length > 0) {
     const goal = goalFocus[idx % goalFocus.length];
     const candidate = normalizeAffirmation(templates[idx % templates.length](goal));
     const key = candidate.toLowerCase();
@@ -79,7 +80,7 @@ function diversifyAffirmations(goals: string[], affirmations: string[], language
     if (idx > 20) break;
   }
 
-  return output.slice(0, 7);
+  return output.slice(0, target);
 }
 
 function languageInstruction(language: string) {
@@ -226,11 +227,16 @@ export const generateStoryboard = action({
     Language lock: ${languageInstruction(language)}
     
     Please provide:
-    1. Storyboard: Array of scenes with descriptions (scene, description, visualStyle, emotion)
+    1. Storyboard: emotionally coherent scenes that fit the affirmation count and movie duration
     2. Assets: Array of recommended stock footage or image IDs for each scene
     3. MusicTrack: A specific copyright-free music track from Unsplash or similar that matches the vibe
     
-    Return as JSON array of 10-15 scenes.`;
+    Scene rules:
+    - Do not force a fixed scene count; usually create affirmation count + 3 to 5 scenes
+    - Include an opening emotional hook, affirmation/body scenes, transition or expansion scenes, and a closing/future-self integration scene
+    - Every scene should support one affirmation, goal, or emotional theme
+    - For each scene include title, description, duration, imagePrompt, visualStyle, emotion, and when possible affirmationIndex or goalIndex
+    - Keep the full movie coherent and emotionally connected to the user's goals.`;
 
     const response = await getOpenAIClient().chat.completions.create({
       model: "gpt-4o-mini",
@@ -278,12 +284,14 @@ export const generateAffirmations = action({
 
     const language = args.language || detectLanguage(args.goals);
 
-    const prompt = `Create 7 deeply transformed affirmations for these goals:
+    const prompt = `Create the best number of deeply transformed affirmations for these goals (aim for 4 to 9, max 12):
     ${args.goals.join(", ")}
 
     Language lock: ${languageInstruction(language)}
 
     Rules:
+    - Choose the affirmation count for emotional impact, not a fixed number
+    - Prefer 4-9 affirmations; use up to 12 only when the goals are emotionally distinct
     - Do NOT copy the user goals verbatim
     - Turn each goal into a vivid identity statement
     - Make the language emotionally resonant, grounded, and specific
@@ -321,7 +329,9 @@ export const generateAffirmations = action({
 
     const data = JSON.parse(content);
     const affirmations: unknown[] = Array.isArray(data.affirmations) ? data.affirmations : [];
-    return diversifyAffirmations(args.goals, affirmations.map((item: unknown) => String(item)), language);
+    const rawAffirmations = affirmations.map((item: unknown) => String(item));
+    const effectiveCount = Math.max(4, Math.min(rawAffirmations.length || 7, 12));
+    return diversifyAffirmations(args.goals, rawAffirmations, language, effectiveCount);
 
   },
 });

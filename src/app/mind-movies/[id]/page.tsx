@@ -9,6 +9,7 @@ import { api } from '../../../../convex/_generated/api';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { useLanguage } from '@/lib/hooks';
 import { canPlayVideoUrlClient } from '@/lib/video/video-url';
+import { buildMindMovieScenePlan } from '@/lib/mindMovies/scene-plan';
 
 type Recording = { affirmationIndex: number; recordedAt: number; mimeType: string; audioDataUrl: string; durationMs?: number };
 
@@ -59,6 +60,14 @@ export default function Page() {
   const missing = affirmations.map((_, i) => i).filter((i) => !recordingMap.has(i));
   const goals = movie?.goals ?? [];
   const emotionalImages = (movie?.emotionalImages ?? []) as EmotionalImage[];
+  const scenePlan = useMemo(() => {
+    if (!movie) return [];
+    return buildMindMovieScenePlan({
+      storyboard: movie.storyboard,
+      affirmations: movie.affirmations,
+      emotionalImages: movie.emotionalImages as EmotionalImage[] | undefined,
+    });
+  }, [movie]);
   const getEmotionalImageForGoal = (goalIndex: number) => emotionalImages.find((image) => image.goalIndex === goalIndex);
 
   useEffect(() => () => {
@@ -248,6 +257,39 @@ export default function Page() {
                   onChange={(e) => void handleEmotionalImageSelect(index, e.target.files?.[0] || null)}
                 />
               </label>
+            </div>;
+          })}
+        </div>
+      </section>
+    )}
+
+    {scenePlan.length > 0 && (
+      <section className="space-y-3 rounded-xl border border-purple-400/20 bg-purple-500/10 p-4">
+        <div>
+          <h2 className="text-xl font-semibold">Plan visual</h2>
+          <p className="text-sm text-slate-300">Mindra mezcla tus imágenes emocionales como anclas personales y deja las demás escenas para imágenes generadas por FLUX.</p>
+        </div>
+        <div className="grid gap-2">
+          {scenePlan.map((scene) => {
+            const affirmationLabel = scene.affirmationIndex === undefined ? 'Transición' : `Afirmación ${scene.affirmationIndex + 1}`;
+            return <div key={scene.sceneIndex} className="rounded-lg border border-white/10 bg-slate-800/70 p-3 flex gap-3 items-start">
+              <div className="w-16 shrink-0 text-xs uppercase tracking-wide text-slate-400">Escena {scene.sceneIndex + 1}</div>
+              {scene.visualSource === 'uploaded_direct' && scene.backgroundImageUrl ? (
+                <img src={scene.backgroundImageUrl} alt={`Imagen emocional para escena ${scene.sceneIndex + 1}`} className="h-16 w-16 rounded-lg object-cover border border-white/10" />
+              ) : (
+                <div className="h-16 w-16 rounded-lg border border-cyan-400/20 bg-cyan-500/10 text-cyan-200 flex items-center justify-center"><Film className="w-5 h-5" /></div>
+              )}
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex gap-2 items-center flex-wrap">
+                  <span className="text-sm font-semibold">{scene.title || affirmationLabel}</span>
+                  <span className={`text-xs rounded-full px-2 py-1 ${scene.visualSource === 'uploaded_direct' ? 'bg-indigo-500/20 text-indigo-200' : 'bg-cyan-500/20 text-cyan-200'}`}>
+                    {scene.visualSource === 'uploaded_direct' ? 'Imagen subida' : 'FLUX'}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-400">{affirmationLabel}</div>
+                {scene.affirmation && <div className="text-sm text-slate-200 line-clamp-2">{scene.affirmation}</div>}
+                {scene.visualSource === 'flux_generated' && scene.imagePrompt && <div className="text-xs text-slate-500 line-clamp-1">Prompt: {scene.imagePrompt}</div>}
+              </div>
             </div>;
           })}
         </div>
