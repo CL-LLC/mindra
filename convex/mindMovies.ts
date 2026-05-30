@@ -214,6 +214,29 @@ export const removeVoiceRecording = mutation({
   },
 });
 
+export const updateEmotionalImages = mutation({
+  args: {
+    id: v.id("mindMovies"),
+    emotionalImages: v.array(v.object({
+      storageId: v.id("_storage"),
+      imageUrl: v.string(),
+      caption: v.optional(v.string()),
+      goalIndex: v.optional(v.number()),
+      sceneIndex: v.optional(v.number()),
+      usageMode: v.union(v.literal("direct"), v.literal("style_reference"), v.literal("both")),
+    })),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const mindMovie = await ctx.db.get(args.id);
+    if (!mindMovie || mindMovie.userId !== userId) throw new Error("Mind movie not found or access denied");
+    if (mindMovie.status === "rendering") throw new Error("Images cannot be changed while this Mind Movie is rendering.");
+    await ctx.db.patch(args.id, { emotionalImages: args.emotionalImages, updatedAt: Date.now() });
+    return true;
+  },
+});
+
 export const updateVideo = mutation({
   args: {
     id: v.id("mindMovies"),

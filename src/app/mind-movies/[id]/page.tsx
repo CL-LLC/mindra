@@ -4,13 +4,25 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useConvexAuth, useMutation, useQuery } from 'convex/react';
-import { ArrowLeft, Play, Film, Loader2, Archive, ArchiveRestore, Mic, Square, RotateCcw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Play, Film, Loader2, Archive, ArchiveRestore, Mic, Square, RotateCcw, AlertCircle, CheckCircle2, Image as ImageIcon, X } from 'lucide-react';
 import { api } from '../../../../convex/_generated/api';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { useLanguage } from '@/lib/hooks';
 import { canPlayVideoUrlClient } from '@/lib/video/video-url';
 
 type Recording = { affirmationIndex: number; recordedAt: number; mimeType: string; audioDataUrl: string; durationMs?: number };
+
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+
+type EmotionalImage = {
+  storageId: Id<'_storage'>;
+  imageUrl: string;
+  caption?: string;
+  goalIndex?: number;
+  sceneIndex?: number;
+  usageMode: 'direct' | 'style_reference' | 'both';
+};
 
 export default function Page() {
   const { isAuthenticated, isLoading } = useConvexAuth();
@@ -21,6 +33,9 @@ export default function Page() {
   const updateStatus = useMutation(api.mindMovies.updateStatus);
   const upsertVoiceRecording = useMutation(api.mindMovies.upsertVoiceRecording);
   const removeVoiceRecording = useMutation(api.mindMovies.removeVoiceRecording);
+  const generateUploadUrl = useMutation(api.mindMovies.generateEmotionalImageUploadUrl);
+  const getEmotionalImageUrl = useMutation(api.mindMovies.getEmotionalImageUrl);
+  const updateEmotionalImages = useMutation(api.mindMovies.updateEmotionalImages);
   const { t } = useLanguage();
 
   const [rendering, setRendering] = useState(false);
@@ -28,11 +43,13 @@ export default function Page() {
   const [busyIndex, setBusyIndex] = useState<number | null>(null);
   const [recordingIndex, setRecordingIndex] = useState<number | null>(null);
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'stopping'>('idle');
+  const [uploadingGoalIndex, setUploadingGoalIndex] = useState<number | null>(null);
   const [seconds, setSeconds] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
   const startedAtRef = useRef(0);
+  const fileInputRefs = useRef<Map<number, HTMLInputElement>>(new Map());
 
   const recordings = (movie?.voiceRecordings ?? []) as Recording[];
   const recordingMap = useMemo(() => new Map(recordings.map((r) => [r.affirmationIndex, r])), [recordings]);
@@ -40,6 +57,9 @@ export default function Page() {
   const recordedCount = affirmations.filter((_, i) => recordingMap.has(i)).length;
   const allRecorded = affirmations.length > 0 && recordedCount === affirmations.length;
   const missing = affirmations.map((_, i) => i).filter((i) => !recordingMap.has(i));
+  const goals = movie?.goals ?? [];
+  const emotionalImages = (movie?.emotionalImages ?? []) as EmotionalImage[];
+  const getEmotionalImageForGoal = (goalIndex: number) => emotionalImages.find((image) => image.goalIndex === goalIndex);
 
   useEffect(() => () => {
     if (timerRef.current) window.clearInterval(timerRef.current);
@@ -87,6 +107,47 @@ export default function Page() {
 
   const stopRecording = () => { if (mediaRecorderRef.current && recordingState === 'recording') { setRecordingState('stopping'); mediaRecorderRef.current.stop(); } };
   const deleteRecording = async (index: number) => { try { await removeVoiceRecording({ id: movieId, affirmationIndex: index }); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : 'Could not delete recording.'); } };
+  const saveEmotionalImages = async (images: EmotionalImage[]) => {
+    await updateEmotionalImages({ id: movieId, emotionalImages: images });
+    router.refresh();
+  };
+
+  const handleEmotionalImageSelect = async (goalIndex: number, file: File | null) => {
+    if (!file) return;
+    if (movie?.status === 'rendering') return setError('Images cannot be changed while this Mind Movie is rendering.');
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) return setError(`Invalid file type: ${file.type}. Use JPEG, PNG, or WebP.`);
+    if (file.size > MAX_IMAGE_SIZE_BYTES) return setError(`Image is too large: ${(file.size / 1024 / 1024).toFixed(1)} MB. Max 5 MB.`);
+
+    setError(null);
+    setUploadingGoalIndex(goalIndex);
+    try {
+      const uploadUrl = await generateUploadUrl();
+      const response = await fetch(uploadUrl, { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
+      if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`);
+      const { storageId } = await response.json() as { storageId: Id<'_storage'> };
+      const imageUrl = await getEmotionalImageUrl({ storageId });
+      const nextImages = [
+        ...emotionalImages.filter((image) => image.goalIndex !== goalIndex),
+        { storageId, imageUrl, goalIndex, usageMode: 'both' as const },
+      ].sort((a, b) => (a.goalIndex ?? 0) - (b.goalIndex ?? 0));
+      await saveEmotionalImages(nextImages);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Image upload failed. Please try again.');
+    } finally {
+      setUploadingGoalIndex(null);
+      const input = fileInputRefs.current.get(goalIndex);
+      if (input) input.value = '';
+    }
+  };
+
+  const removeEmotionalImage = async (goalIndex: number) => {
+    try {
+      await saveEmotionalImages(emotionalImages.filter((image) => image.goalIndex !== goalIndex));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not remove image.');
+    }
+  };
+
   const renderMovie = async () => {
     if (!allRecorded) return setError(`${t('movie.recordAllAffirmations')} ${t('movie.missingCount')} ${missing.length} ${t('movie.more')}.`);
     setRendering(true); setError(null);
@@ -154,6 +215,44 @@ export default function Page() {
     </div>
 
     {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-200 flex items-start gap-2"><AlertCircle className="w-4 h-4 mt-0.5" /><span>{error}</span></div>}
+
+
+    {goals.length > 0 && movie.status !== 'ready' && movie.status !== 'archived' && (
+      <section className="space-y-3 rounded-xl border border-indigo-400/20 bg-indigo-500/10 p-4">
+        <div>
+          <h2 className="text-xl font-semibold">Imágenes emocionales</h2>
+          <p className="text-sm text-slate-300">Agrega imágenes personales a tus metas antes de renderizar. Se usarán directamente en las escenas del video.</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {goals.map((goal, index) => {
+            const image = getEmotionalImageForGoal(index);
+            const uploading = uploadingGoalIndex === index;
+            return <div key={index} className="rounded-lg border border-white/10 bg-slate-800/70 p-3 space-y-3">
+              <div className="text-xs uppercase tracking-wide text-slate-400">Meta {index + 1}</div>
+              <div className="text-sm font-medium text-white">{goal}</div>
+              {image?.imageUrl && (
+                <div className="flex items-center gap-3">
+                  <img src={image.imageUrl} alt={image.caption || `Meta ${index + 1}`} className="h-20 w-20 rounded-lg object-cover border border-white/10" />
+                  <button type="button" onClick={() => void removeEmotionalImage(index)} className="px-3 py-2 rounded-lg bg-rose-600/80 hover:bg-rose-600 inline-flex items-center gap-2 text-sm"><X className="w-4 h-4" />Quitar</button>
+                </div>
+              )}
+              <label className="cursor-pointer px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 inline-flex items-center gap-2 text-sm">
+                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
+                {image ? 'Cambiar imagen' : 'Subir imagen'}
+                <input
+                  ref={(el) => { if (el) fileInputRefs.current.set(index, el); }}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={(e) => void handleEmotionalImageSelect(index, e.target.files?.[0] || null)}
+                />
+              </label>
+            </div>;
+          })}
+        </div>
+      </section>
+    )}
 
     <section className="space-y-3">
       <div className="flex items-center justify-between">
