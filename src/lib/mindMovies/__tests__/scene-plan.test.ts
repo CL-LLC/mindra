@@ -76,10 +76,48 @@ function testRenderPayloadLeavesFluxScenesWithoutBackgroundImageUrl() {
   assert.ok(fluxCount > uploadedCount, 'FLUX should remain the default visual source');
 }
 
+function testExplicitStoryboardAffirmationIndexesAreRespected() {
+  const plan = buildMindMovieScenePlan({
+    storyboard: [
+      { ...storyboard(1)[0], affirmationIndex: 2 },
+      { ...storyboard(1)[0], affirmationIndex: 0 },
+      { ...storyboard(1)[0], affirmationIndex: 1 },
+    ],
+    affirmations: ['A1', 'A2', 'A3'],
+    emotionalImages: [],
+  });
+
+  assert.deepStrictEqual(
+    plan.map((scene) => scene.affirmation),
+    ['A3', 'A1', 'A2'],
+    'scene plan should follow storyboard affirmationIndex before falling back to proportional assignment'
+  );
+}
+
+function testGoalLinkedImagesPreferMatchingGoalScenes() {
+  const plan = buildMindMovieScenePlan({
+    storyboard: [
+      { ...storyboard(1)[0], title: 'Goal 2 scene', goalIndex: 2, affirmationIndex: 2 },
+      { ...storyboard(1)[0], title: 'Goal 0 scene', goalIndex: 0, affirmationIndex: 0 },
+      { ...storyboard(1)[0], title: 'Goal 1 scene', goalIndex: 1, affirmationIndex: 1 },
+      { ...storyboard(1)[0], title: 'FLUX transition', affirmationIndex: 0 },
+    ],
+    affirmations: ['A1', 'A2', 'A3'],
+    emotionalImages: [image(0, 'https://example.com/goal-0.jpg'), image(1, 'https://example.com/goal-1.jpg')],
+  });
+
+  assert.strictEqual(plan[1].backgroundImageUrl, 'https://example.com/goal-0.jpg');
+  assert.strictEqual(plan[1].affirmation, 'A1');
+  assert.strictEqual(plan[2].backgroundImageUrl, 'https://example.com/goal-1.jpg');
+  assert.strictEqual(plan[2].affirmation, 'A2');
+}
+
 function main() {
   testUploadedImagesArePreferredWithoutReplacingFlux();
   testTooManyUploadedImagesAreCappedToPreserveFlux();
   testEveryAffirmationIsRepresentedWhenSceneCountAllowsIt();
+  testExplicitStoryboardAffirmationIndexesAreRespected();
+  testGoalLinkedImagesPreferMatchingGoalScenes();
   testRenderPayloadLeavesFluxScenesWithoutBackgroundImageUrl();
   console.log('✅ scene-plan tests passed');
 }

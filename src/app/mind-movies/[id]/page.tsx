@@ -200,6 +200,12 @@ export default function Page() {
   if (movie === undefined) return <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">{t('movie.loading')}</div>;
   if (!movie) return <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">{t('movie.movieNotFound')}</div>;
   const showWatch = movie.status === 'ready' && Boolean(movie.videoUrl) && canPlayVideoUrlClient(movie.videoUrl);
+  const showRenderButton = movie.status !== 'rendering' && movie.status !== 'archived';
+  const renderButtonLabel = rendering
+    ? t('movie.rendering')
+    : showWatch
+      ? 'Re-render updated movie'
+      : t('movie.renderVideo');
 
   return <div className="min-h-screen bg-slate-900 text-white p-8"><div className="max-w-5xl mx-auto space-y-6">
     <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -207,7 +213,7 @@ export default function Page() {
       <div className="flex gap-2 flex-wrap">
         {movie.status === 'archived' ? <button onClick={() => setArchived('ready')} className="px-4 py-2 rounded-lg bg-white/10 inline-flex items-center gap-2"><ArchiveRestore className="w-4 h-4" />{t('movie.unarchive')}</button> : <button onClick={() => setArchived('archived')} className="px-4 py-2 rounded-lg bg-white/10 inline-flex items-center gap-2"><Archive className="w-4 h-4" />{t('movie.archive')}</button>}
         {showWatch && <Link href={`/mind-movies/${movie._id}/watch`} className="px-4 py-2 rounded-lg bg-blue-600 inline-flex items-center gap-2"><Play className="w-4 h-4" />{t('movie.watchNow')}</Link>}
-        {movie.status !== 'rendering' && (!movie.videoUrl || !canPlayVideoUrlClient(movie.videoUrl)) && <button onClick={renderMovie} disabled={!allRecorded || rendering} className="px-4 py-2 rounded-lg bg-purple-600 disabled:bg-purple-600/50 inline-flex items-center gap-2"><Film className="w-4 h-4" />{rendering ? t('movie.rendering') : t('movie.renderVideo')}</button>}
+        {showRenderButton && <button onClick={renderMovie} disabled={!allRecorded || rendering} className="px-4 py-2 rounded-lg bg-purple-600 disabled:bg-purple-600/50 inline-flex items-center gap-2"><Film className="w-4 h-4" />{renderButtonLabel}</button>}
         {movie.status === 'rendering' && <span className="px-4 py-2 rounded-lg bg-yellow-600/30 text-yellow-300 inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />{t('status.rendering')}</span>}
       </div>
     </div>

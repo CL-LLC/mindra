@@ -45,10 +45,13 @@ export function buildMindMovieScenePlan(input: ScenePlanInput): ScenePlanEntry[]
   const selectedProportionalImages = proportionalImages.slice(0, remainingAnchorSlots);
   const freeSceneIndexes = Array.from({ length: sceneCount }, (_, index) => index)
     .filter((index) => !exactSceneIndexes.has(index));
-  const proportionalAssignments = distributeAnchors(selectedProportionalImages, freeSceneIndexes);
+  const plannedAffirmationIndexes = scenes.map((scene: any, index: number) =>
+    resolveAffirmationIndex(scene, index, sceneCount, affirmations.length)
+  );
+  const proportionalAssignments = distributeAnchors(selectedProportionalImages, freeSceneIndexes, scenes, plannedAffirmationIndexes);
 
   return scenes.map((scene: any, index: number) => {
-    const affirmationIndex = proportionalIndex(index, sceneCount, affirmations.length);
+    const affirmationIndex = plannedAffirmationIndexes[index];
     const exactImage = exactImages.find((image) => image.sceneIndex === index);
     const proportionalImage = proportionalAssignments.get(index);
     const emotionalImage = exactImage ?? proportionalImage;
@@ -68,18 +71,63 @@ export function buildMindMovieScenePlan(input: ScenePlanInput): ScenePlanEntry[]
   });
 }
 
-function distributeAnchors(images: EmotionalImageMeta[], sceneIndexes: number[]): Map<number, EmotionalImageMeta> {
+function distributeAnchors(
+  images: EmotionalImageMeta[],
+  sceneIndexes: number[],
+  scenes: Array<Record<string, unknown>>,
+  plannedAffirmationIndexes: Array<number | undefined>
+): Map<number, EmotionalImageMeta> {
   const assignments = new Map<number, EmotionalImageMeta>();
   if (images.length === 0 || sceneIndexes.length === 0) return assignments;
 
+  const available = new Set(sceneIndexes);
   for (let index = 0; index < images.length; index += 1) {
-    const sceneIndex = sceneIndexes[Math.floor((index * sceneIndexes.length) / images.length)];
-    if (sceneIndex !== undefined && !assignments.has(sceneIndex)) {
-      assignments.set(sceneIndex, images[index]);
+    const image = images[index];
+    const sceneIndex = chooseBestSceneForImage(image, Array.from(available), scenes, plannedAffirmationIndexes, index, images.length);
+    if (sceneIndex !== undefined) {
+      assignments.set(sceneIndex, image);
+      available.delete(sceneIndex);
     }
   }
 
   return assignments;
+}
+
+function chooseBestSceneForImage(
+  image: EmotionalImageMeta,
+  availableSceneIndexes: number[],
+  scenes: Array<Record<string, unknown>>,
+  plannedAffirmationIndexes: Array<number | undefined>,
+  imageIndex: number,
+  imageCount: number
+): number | undefined {
+  if (availableSceneIndexes.length === 0) return undefined;
+
+  if (typeof image.goalIndex === 'number' && Number.isFinite(image.goalIndex)) {
+    const matchingGoalScene = availableSceneIndexes.find((sceneIndex) => scenes[sceneIndex]?.goalIndex === image.goalIndex);
+    if (matchingGoalScene !== undefined) return matchingGoalScene;
+
+    const matchingAffirmationScene = availableSceneIndexes.find(
+      (sceneIndex) => plannedAffirmationIndexes[sceneIndex] === image.goalIndex
+    );
+    if (matchingAffirmationScene !== undefined) return matchingAffirmationScene;
+  }
+
+  const spreadIndex = Math.floor((imageIndex * availableSceneIndexes.length) / Math.max(1, imageCount));
+  return availableSceneIndexes[Math.min(availableSceneIndexes.length - 1, spreadIndex)];
+}
+
+function resolveAffirmationIndex(
+  scene: Record<string, unknown>,
+  sceneIndex: number,
+  sceneCount: number,
+  affirmationCount: number
+): number | undefined {
+  const explicit = scene.affirmationIndex;
+  if (typeof explicit === 'number' && Number.isInteger(explicit) && explicit >= 0 && explicit < affirmationCount) {
+    return explicit;
+  }
+  return proportionalIndex(sceneIndex, sceneCount, affirmationCount);
 }
 
 function proportionalIndex(sceneIndex: number, sceneCount: number, itemCount: number): number | undefined {
