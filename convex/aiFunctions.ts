@@ -232,7 +232,7 @@ export const generateStoryboard = action({
     3. MusicTrack: A specific copyright-free music track from Unsplash or similar that matches the vibe
     
     Scene rules:
-    - Do not force a fixed scene count; usually create affirmation count + 3 to 5 scenes
+    - Do not force a fixed scene count; usually create at least one main scene per affirmation plus 2 to 4 transition/integration scenes
     - Include an opening emotional hook, affirmation/body scenes, transition or expansion scenes, and a closing/future-self integration scene
     - Every scene should support one affirmation, goal, or emotional theme
     - For each scene include title, description, duration, imagePrompt, visualStyle, emotion, and when possible affirmationIndex or goalIndex
@@ -284,14 +284,15 @@ export const generateAffirmations = action({
 
     const language = args.language || detectLanguage(args.goals);
 
-    const prompt = `Create the best number of deeply transformed affirmations for these goals (aim for 4 to 9, max 12):
+    const prompt = `Create the richest useful set of deeply transformed affirmations for these goals (prefer 6 to 10, max 12):
     ${args.goals.join(", ")}
 
     Language lock: ${languageInstruction(language)}
 
     Rules:
     - Choose the affirmation count for emotional impact, not a fixed number
-    - Prefer 4-9 affirmations; use up to 12 only when the goals are emotionally distinct
+    - Prefer 6-10 affirmations so the movie can use a broad emotional sequence; use fewer only for very simple goals and up to 12 when the goals are emotionally distinct
+    - Avoid making the movie depend on only one or two repeated affirmations
     - Do NOT copy the user goals verbatim
     - Turn each goal into a vivid identity statement
     - Make the language emotionally resonant, grounded, and specific
@@ -330,7 +331,8 @@ export const generateAffirmations = action({
     const data = JSON.parse(content);
     const affirmations: unknown[] = Array.isArray(data.affirmations) ? data.affirmations : [];
     const rawAffirmations = affirmations.map((item: unknown) => String(item));
-    const effectiveCount = Math.max(4, Math.min(rawAffirmations.length || 7, 12));
+    const minimumUsefulCount = Math.min(10, Math.max(6, args.goals.length * 2));
+    const effectiveCount = Math.max(minimumUsefulCount, Math.min(rawAffirmations.length || minimumUsefulCount, 12));
     return diversifyAffirmations(args.goals, rawAffirmations, language, effectiveCount);
 
   },

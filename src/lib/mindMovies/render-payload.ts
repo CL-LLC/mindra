@@ -34,6 +34,7 @@ export function buildScenesForRender(movie: {
   const recordings = (Array.isArray(movie.voiceRecordings) ? movie.voiceRecordings : [])
     .filter((recording) => Boolean(recording.audioDataUrl))
     .sort((a, b) => a.affirmationIndex - b.affirmationIndex);
+  const recordingByAffirmationIndex = new Map(recordings.map((recording) => [recording.affirmationIndex, recording]));
 
   const scenePlan = buildMindMovieScenePlan({
     storyboard: movie.storyboard,
@@ -42,10 +43,9 @@ export function buildScenesForRender(movie: {
   });
 
   return normalizedStoryboard.map((scene: any, index: number) => {
-    const affirmationIndex = proportionalIndex(index, sceneCount, affirmations.length);
-    const recordingIndex = proportionalIndex(index, sceneCount, recordings.length);
-    const recording = recordingIndex === undefined ? undefined : recordings[recordingIndex];
     const planEntry = scenePlan[index];
+    const affirmationIndex = planEntry?.affirmationIndex ?? proportionalIndex(index, sceneCount, affirmations.length);
+    const recording = affirmationIndex === undefined ? undefined : recordingByAffirmationIndex.get(affirmationIndex);
     const backgroundImageUrl = planEntry?.visualSource === 'uploaded_direct'
       ? planEntry.backgroundImageUrl
       : undefined;

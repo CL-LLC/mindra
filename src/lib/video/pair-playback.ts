@@ -1,5 +1,5 @@
-// Pair Playback Strategy for Mind Movie affirmations
-// Implements JC's product rule: 2 affirmations per session, consecutive repeats, pair rotation
+// Affirmation playback overlay timing for Mind Movie affirmations
+// Legacy filename retained; behavior now sequences all affirmations instead of collapsing to a two-item pair.
 
 export interface PairPlaybackScene {
   affirmation: string;
@@ -9,27 +9,16 @@ export interface PairPlaybackScene {
 }
 
 export interface PairPlaybackManifest {
-  version: 2; // New version for pair-playback
+  version: 2;
   scenes: PairPlaybackScene[];
   totalDuration: number;
-  pairIndex: number; // Which pair is currently active (for debugging/transparency)
-  affirmations: [string, string]; // The two affirmations being used
+  pairIndex: number; // Legacy field retained for compatibility; always 0 for all-affirmation sequencing
+  affirmations: string[]; // All affirmations being used in the playback window
 }
 
 /**
- * Get day-of-year for deterministic pair rotation
- * This provides variety across sessions without requiring persistence
- */
-export function getDayOfYear(date: Date = new Date()): number {
-  const start = new Date(date.getFullYear(), 0, 0);
-  const diff = date.getTime() - start.getTime();
-  const oneDay = 1000 * 60 * 60 * 24;
-  return Math.floor(diff / oneDay);
-}
-
-/**
- * Select a pair of affirmations based on rotation strategy
- * Uses day-of-year for deterministic rotation without persistence
+ * Legacy compatibility helper. Prefer generatePairPlaybackManifest(), which now uses
+ * every affirmation instead of rotating only a selected pair.
  */
 export function selectAffirmationPair(
   affirmations: string[],
@@ -38,93 +27,64 @@ export function selectAffirmationPair(
   if (affirmations.length === 0) {
     throw new Error('No affirmations available');
   }
-  
+
   if (affirmations.length === 1) {
-    // Edge case: only one affirmation, use it for both
     return { pair: [affirmations[0], affirmations[0]], pairIndex: 0 };
   }
-  
-  // Use provided rotation index or calculate from day-of-year
-  const index = rotationIndex ?? getDayOfYear();
-  
-  // Calculate which pair to use
-  // For n affirmations, we can make n-1 consecutive pairs
-  // Then we cycle through them
+
+  const index = rotationIndex ?? 0;
   const maxPairs = affirmations.length - 1;
   const pairIndex = index % maxPairs;
-  
-  const firstAffirmation = affirmations[pairIndex];
-  const secondAffirmation = affirmations[pairIndex + 1];
-  
-  if (!firstAffirmation || !secondAffirmation) {
-    // Fallback: use first two affirmations
-    return { pair: [affirmations[0], affirmations[1]], pairIndex: 0 };
-  }
-  
-  return { pair: [firstAffirmation, secondAffirmation], pairIndex };
+  return { pair: [affirmations[pairIndex], affirmations[pairIndex + 1]], pairIndex };
 }
 
 /**
- * Generate pair-playback manifest with consecutive repeats
- * 
+ * Generate an affirmation overlay manifest using all available affirmations.
+ *
  * Strategy:
  * - NO affirmations during intro/outro
- * - Divide main content into two halves
- * - First half: Affirmation A displayed persistently (no gaps)
- * - Second half: Affirmation B displayed persistently (no gaps)
- * - NO affirmations during outro
+ * - Divide main content into one segment per affirmation
+ * - Use every affirmation when there is main-content duration available
  */
 export function generatePairPlaybackManifest(
   affirmations: string[],
   totalDuration: number,
-  rotationIndex?: number,
+  _rotationIndex?: number,
   introDuration: number = 15,
   outroDuration: number = 15
 ): PairPlaybackManifest {
-  const { pair, pairIndex } = selectAffirmationPair(affirmations, rotationIndex);
-  const [affirmationA, affirmationB] = pair;
-  
-  const scenes: PairPlaybackScene[] = [];
-  
-  // Calculate main content duration (excluding intro/outro)
+  const cleanedAffirmations = affirmations.map((affirmation) => affirmation.trim()).filter(Boolean);
+  if (cleanedAffirmations.length === 0) {
+    throw new Error('No affirmations available');
+  }
+
   const mainDuration = totalDuration - introDuration - outroDuration;
-  
-  // If no main content or negative, return empty manifest
   if (mainDuration <= 0) {
     return {
       version: 2,
       scenes: [],
       totalDuration,
-      pairIndex,
-      affirmations: pair,
+      pairIndex: 0,
+      affirmations: cleanedAffirmations,
     };
   }
-  
-  // Divide main content into two halves
-  const midpoint = introDuration + (mainDuration / 2);
-  
-  // First half: Affirmation A persistent (from intro end to midpoint)
-  scenes.push({
-    affirmation: affirmationA,
-    startTime: introDuration,
-    endTime: midpoint,
+
+  const segmentDuration = mainDuration / cleanedAffirmations.length;
+  const scenes: PairPlaybackScene[] = cleanedAffirmations.map((affirmation, index) => ({
+    affirmation,
+    startTime: introDuration + index * segmentDuration,
+    endTime: index === cleanedAffirmations.length - 1
+      ? totalDuration - outroDuration
+      : introDuration + (index + 1) * segmentDuration,
     position: 'bottom',
-  });
-  
-  // Second half: Affirmation B persistent (from midpoint to outro start)
-  scenes.push({
-    affirmation: affirmationB,
-    startTime: midpoint,
-    endTime: totalDuration - outroDuration,
-    position: 'bottom',
-  });
-  
+  }));
+
   return {
     version: 2,
     scenes,
     totalDuration,
-    pairIndex,
-    affirmations: pair,
+    pairIndex: 0,
+    affirmations: cleanedAffirmations,
   };
 }
 

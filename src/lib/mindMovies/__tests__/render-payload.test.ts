@@ -47,6 +47,61 @@ function testTwoRecordedAffirmationsAreSplitAcrossMovie() {
   }
 }
 
+function testRenderUsesAllAvailableAffirmationsAndMatchingRecordings() {
+  const affirmations = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'];
+  const voiceRecordings = affirmations.map((_, index) => ({
+    affirmationIndex: index,
+    audioDataUrl: tinyAudio(`recording-${index + 1}`),
+    mimeType: 'audio/wav',
+    durationMs: 1500,
+  }));
+
+  const scenes = buildScenesForRender({
+    storyboard: storyboard(12),
+    affirmations,
+    voiceRecordings,
+    language: 'en',
+  });
+
+  assert.deepStrictEqual(
+    [...new Set(scenes.map((scene) => scene.affirmation))],
+    affirmations,
+    'render payload should use every generated affirmation when scene count allows'
+  );
+
+  for (const scene of scenes) {
+    const affirmationIndex = affirmations.indexOf(scene.affirmation);
+    assert.ok(affirmationIndex >= 0, 'scene affirmation should come from generated affirmations');
+    assert.strictEqual(
+      scene.narrationAudioDataUrl,
+      tinyAudio(`recording-${affirmationIndex + 1}`),
+      'recorded audio should match the scene affirmation index, not a separate two-item split'
+    );
+  }
+}
+
+function testPartialRecordingsDoNotGetSpreadAcrossUnrelatedAffirmations() {
+  const affirmations = ['A1', 'A2', 'A3', 'A4', 'A5'];
+  const scenes = buildScenesForRender({
+    storyboard: storyboard(10),
+    affirmations,
+    voiceRecordings: [
+      { affirmationIndex: 0, audioDataUrl: tinyAudio('recording-one'), mimeType: 'audio/wav' },
+      { affirmationIndex: 1, audioDataUrl: tinyAudio('recording-two'), mimeType: 'audio/wav' },
+    ],
+  });
+
+  for (const scene of scenes) {
+    if (scene.affirmation === 'A1') {
+      assert.strictEqual(scene.narrationAudioDataUrl, tinyAudio('recording-one'));
+    } else if (scene.affirmation === 'A2') {
+      assert.strictEqual(scene.narrationAudioDataUrl, tinyAudio('recording-two'));
+    } else {
+      assert.strictEqual(scene.narrationAudioDataUrl, undefined, `${scene.affirmation} should not reuse an unrelated recording`);
+    }
+  }
+}
+
 function testSceneDescriptionsDoNotBecomeAffirmationNarrationWhenAffirmationsExist() {
   const scenes = buildScenesForRender({
     storyboard: storyboard(5),
@@ -167,6 +222,8 @@ function testEmptyEmotionalImagesPreservesExistingBehavior() {
 
 function main() {
   testTwoRecordedAffirmationsAreSplitAcrossMovie();
+  testRenderUsesAllAvailableAffirmationsAndMatchingRecordings();
+  testPartialRecordingsDoNotGetSpreadAcrossUnrelatedAffirmations();
   testSceneDescriptionsDoNotBecomeAffirmationNarrationWhenAffirmationsExist();
   testEmotionalImagesMappedToScenesProportionally();
   testExactSceneIndexTakesPriority();
