@@ -61,7 +61,7 @@ export class FFmpegComposer implements VideoComposer {
         : Math.min(track.duration, mainDuration);
       const voiceGain = track.repeat ? 2.6 : 2.1;
       const adjustedStart = Math.round((introDuration + track.start) * 1000);
-      filters.push(`[${inputIndex}:a]atrim=0:${usableDuration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${voiceGain},alimiter=limit=0.92,adelay=${adjustedStart}|${adjustedStart}[${label}]`);
+      filters.push(`[${inputIndex}:a]aresample=async=1:first_pts=0,atrim=0:${usableDuration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${voiceGain},alimiter=limit=0.92,adelay=${adjustedStart}|${adjustedStart},apad,atrim=0:${totalDuration.toFixed(3)}[${label}]`);
       audioMixInputs.push(`[${label}]`);
     });
 

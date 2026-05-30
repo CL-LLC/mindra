@@ -8,6 +8,7 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getPipeline } from '../../../src/lib/video/pipeline';
 import type { RenderJobPayload } from './types';
 import { bearer, constantTimeEqual, fetchWithTimeout, readJsonBody, RenderJobDedupe } from './server-utils';
+import { MINDRA_RENDER_PROTOCOL_VERSION } from '../../../src/lib/video/render-protocol';
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const WEBHOOK_TIMEOUT_MS = 30_000;
@@ -89,7 +90,11 @@ async function runJob(payload: RenderJobPayload) {
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && req.url?.split('?')[0] === '/health') {
-      jsonResponse(res, 200, { ok: true });
+      jsonResponse(res, 200, {
+        ok: true,
+        protocolVersion: MINDRA_RENDER_PROTOCOL_VERSION,
+        pipeline: 'v2',
+      });
       return;
     }
 

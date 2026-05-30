@@ -6,6 +6,7 @@ import { convexAuthNextjsToken } from '@convex-dev/auth/nextjs/server';
 import { api } from '../../../../convex/_generated/api';
 import { buildScenesForRender } from '@/lib/mindMovies/render-payload';
 import { getPipeline } from '../../../lib/video/pipeline';
+import { MINDRA_RENDER_PROTOCOL_VERSION } from '../../../lib/video/render-protocol';
 import {
   type StoryboardScene,
   validateStoryboard,
@@ -75,6 +76,30 @@ export async function POST(request: NextRequest) {
     const workerSecret = process.env.RENDER_WORKER_SECRET;
 
     if (workerBase && workerSecret) {
+      try {
+        const healthRes = await fetch(`${workerBase}/health`, { cache: 'no-store' });
+        const health = healthRes.ok ? await healthRes.json().catch(() => ({})) : {};
+        if (!healthRes.ok || health?.protocolVersion !== MINDRA_RENDER_PROTOCOL_VERSION) {
+          return NextResponse.json(
+            {
+              error: 'Render worker is out of date. Please deploy/restart the render worker before rendering so all affirmations are included.',
+              expectedProtocolVersion: MINDRA_RENDER_PROTOCOL_VERSION,
+              workerProtocolVersion: health?.protocolVersion ?? null,
+            },
+            { status: 503 }
+          );
+        }
+      } catch (healthError) {
+        return NextResponse.json(
+          {
+            error: healthError instanceof Error
+              ? `Could not verify render worker version: ${healthError.message}`
+              : 'Could not verify render worker version.',
+          },
+          { status: 503 }
+        );
+      }
+
       const renderJobId = randomUUID();
       await convex.mutation(api.mindMovies.beginRemoteRender, { id, renderJobId });
 
