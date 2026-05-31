@@ -9,6 +9,7 @@
  */
 
 import type * as aiFunctions from "../aiFunctions.js";
+import type * as aiLanguage from "../aiLanguage.js";
 import type * as auth from "../auth.js";
 import type * as clarity from "../clarity.js";
 import type * as clarityAgent from "../clarityAgent.js";
@@ -29,6 +30,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   aiFunctions: typeof aiFunctions;
+  aiLanguage: typeof aiLanguage;
   auth: typeof auth;
   clarity: typeof clarity;
   clarityAgent: typeof clarityAgent;

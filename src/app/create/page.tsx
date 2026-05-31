@@ -11,6 +11,7 @@ import { buildDeterministicScaffold } from '@/lib/mindmovie/scaffold';
 import { normalizeStoryboard, toManifestFormat } from '@/lib/mindmovie/storyboard';
 import { generateAffirmationManifestFromNormalized } from '@/lib/video/renderer';
 import { useLanguage } from '@/lib/hooks';
+import { resolveCreationLanguage } from '@/lib/mindmovie/language';
 
 /** Allowed mime types for emotional image upload. */
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -36,15 +37,6 @@ type EmotionalImageUpload = {
   /** Upload error message if any. */
   uploadError?: string;
 };
-
-function detectLanguage(texts: string[]) {
-  const sample = texts.join(' ').toLowerCase();
-  const spanishSignals = [' el ', ' la ', ' los ', ' las ', ' tengo ', ' quiero ', ' estoy ', ' ser ', ' conmigo', ' éxito', ' confianza', ' trabajo', ' dinero', ' salud', ' familia', ' mi ', ' mis '];
-  const englishSignals = [' the ', ' and ', ' to ', ' my ', ' is ', ' am ', ' want ', ' become ', ' confidence', ' career', ' health', ' money', ' family', ' daily '];
-  const spanishScore = spanishSignals.reduce((sum, s) => sum + (sample.includes(s) ? 1 : 0), 0);
-  const englishScore = englishSignals.reduce((sum, s) => sum + (sample.includes(s) ? 1 : 0), 0);
-  return spanishScore > englishScore ? 'es' : 'en';
-}
 
 export default function CreatePage() {
   const router = useRouter();
@@ -178,8 +170,13 @@ export default function CreatePage() {
 
     try {
       setStepIndex(0);
-      // Use user's saved language preference, fallback to detected language
-      const language = (user?.preferredLanguage ?? draftLanguage ?? detectLanguage([normalizedTitle, ...nextGoals, intake])) as 'en' | 'es';
+      // Explicit app language selection is authoritative for all generated content.
+      const language = resolveCreationLanguage({
+        userPreferredLanguage: user?.preferredLanguage,
+        uiLanguage,
+        draftLanguage,
+        texts: [normalizedTitle, ...nextGoals, intake],
+      });
 
       setStepIndex(1);
       let affirmations = await generateAffirmations({ goals: nextGoals, language });
@@ -264,7 +261,7 @@ export default function CreatePage() {
     try {
       const draft = await proposeCreateDraft({ 
         input: intake.trim(),
-        preferredLanguage: user?.preferredLanguage as 'en' | 'es' | undefined,
+        preferredLanguage: user?.preferredLanguage ?? uiLanguage,
       });
       setTitle(draft.title);
       setGoalsText(draft.goals.join('\n'));
@@ -285,7 +282,7 @@ export default function CreatePage() {
     try {
       const draft = await proposeCreateDraft({ 
         input: intake.trim(),
-        preferredLanguage: user?.preferredLanguage as 'en' | 'es' | undefined,
+        preferredLanguage: user?.preferredLanguage ?? uiLanguage,
       });
       setTitle(draft.title);
       setGoalsText(draft.goals.join('\n'));
