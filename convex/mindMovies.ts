@@ -15,7 +15,9 @@ const voiceRecordingValidator = v.object({
   affirmationIndex: v.number(),
   recordedAt: v.number(),
   mimeType: v.string(),
-  audioDataUrl: v.string(),
+  audioDataUrl: v.optional(v.string()),
+  audioStorageId: v.optional(v.id("_storage")),
+  audioUrl: v.optional(v.string()),
   durationMs: v.optional(v.number()),
 });
 
@@ -311,6 +313,16 @@ export const generateEmotionalImageUploadUrl = mutation({
   },
 });
 
+/** Generate a Convex storage upload URL for voice recording upload (client uploads audio directly to Convex). */
+export const generateVoiceRecordingUploadUrl = mutation({
+  args: {},
+  returns: v.string(),
+  handler: async (ctx) => {
+    await requireUserId(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
 /** Resolve a Convex storage id to a fetchable URL for previews and render workers. */
 export const getEmotionalImageUrl = mutation({
   args: { storageId: v.id("_storage") },
@@ -319,6 +331,18 @@ export const getEmotionalImageUrl = mutation({
     await requireUserId(ctx);
     const url = await ctx.storage.getUrl(args.storageId);
     if (!url) throw new Error("Uploaded image is not available yet. Please try again.");
+    return url;
+  },
+});
+
+/** Resolve a Convex storage id to a fetchable URL for recorded affirmation audio. */
+export const getVoiceRecordingUrl = mutation({
+  args: { storageId: v.id("_storage") },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    await requireUserId(ctx);
+    const url = await ctx.storage.getUrl(args.storageId);
+    if (!url) throw new Error("Uploaded recording is not available yet. Please try again.");
     return url;
   },
 });

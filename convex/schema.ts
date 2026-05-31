@@ -6,7 +6,11 @@ const voiceRecordingValidator = v.object({
   affirmationIndex: v.number(),
   recordedAt: v.number(),
   mimeType: v.string(),
-  audioDataUrl: v.string(),
+  /** Legacy inline base64 data URL. Kept optional for old drafts only. */
+  audioDataUrl: v.optional(v.string()),
+  /** Convex storage-backed audio metadata; avoids the 1 MiB document/value limit. */
+  audioStorageId: v.optional(v.id("_storage")),
+  audioUrl: v.optional(v.string()),
   durationMs: v.optional(v.number()),
 });
 

@@ -11,7 +11,15 @@ import { useLanguage } from '@/lib/hooks';
 import { canPlayVideoUrlClient } from '@/lib/video/video-url';
 import { buildMindMovieScenePlan } from '@/lib/mindMovies/scene-plan';
 
-type Recording = { affirmationIndex: number; recordedAt: number; mimeType: string; audioDataUrl: string; durationMs?: number };
+type Recording = {
+  affirmationIndex: number;
+  recordedAt: number;
+  mimeType: string;
+  audioDataUrl?: string;
+  audioStorageId?: Id<'_storage'>;
+  audioUrl?: string;
+  durationMs?: number;
+};
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -35,6 +43,8 @@ export default function Page() {
   const upsertVoiceRecording = useMutation(api.mindMovies.upsertVoiceRecording);
   const removeVoiceRecording = useMutation(api.mindMovies.removeVoiceRecording);
   const generateUploadUrl = useMutation(api.mindMovies.generateEmotionalImageUploadUrl);
+  const generateVoiceRecordingUploadUrl = useMutation(api.mindMovies.generateVoiceRecordingUploadUrl);
+  const getVoiceRecordingUrl = useMutation(api.mindMovies.getVoiceRecordingUrl);
   const getEmotionalImageUrl = useMutation(api.mindMovies.getEmotionalImageUrl);
   const updateEmotionalImages = useMutation(api.mindMovies.updateEmotionalImages);
   const { t } = useLanguage();
@@ -104,8 +114,12 @@ export default function Page() {
         try {
           setBusyIndex(index);
           const blob = new Blob(parts, { type: recorder.mimeType || 'audio/webm' });
-          const audioDataUrl = await new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onloadend = () => resolve(String(r.result)); r.onerror = () => reject(new Error('Failed to read recording.')); r.readAsDataURL(blob); });
-          await upsertVoiceRecording({ id: movieId, recording: { affirmationIndex: index, recordedAt: Date.now(), mimeType: blob.type || 'audio/webm', audioDataUrl, durationMs: Date.now() - startedAtRef.current } });
+          const uploadUrl = await generateVoiceRecordingUploadUrl();
+          const response = await fetch(uploadUrl, { method: 'POST', headers: { 'Content-Type': blob.type || 'audio/webm' }, body: blob });
+          if (!response.ok) throw new Error(`Recording upload failed: ${response.statusText}`);
+          const { storageId } = await response.json() as { storageId: Id<'_storage'> };
+          const audioUrl = await getVoiceRecordingUrl({ storageId });
+          await upsertVoiceRecording({ id: movieId, recording: { affirmationIndex: index, recordedAt: Date.now(), mimeType: blob.type || 'audio/webm', audioStorageId: storageId, audioUrl, durationMs: Date.now() - startedAtRef.current } });
           router.refresh();
         } catch (e) { setError(e instanceof Error ? e.message : 'Could not save recording.'); }
         finally { setBusyIndex(null); resetRecorder(); }

@@ -443,6 +443,15 @@ async function resolveNarrationSource(scene: RenderScene, tempDir: string, scene
 
 async function writeNarrationRecording(tempDir: string, sceneIndex: number, dataUrl?: string, mimeType?: string): Promise<string | undefined> {
   if (!dataUrl) return undefined;
+  if (dataUrl.startsWith('http://') || dataUrl.startsWith('https://')) {
+    const response = await fetch(dataUrl);
+    if (!response.ok) throw new Error(`Failed to download recorded narration: ${response.status} ${response.statusText}`);
+    const detectedMimeType = response.headers.get('content-type') || mimeType || 'audio/webm';
+    const ext = mimeTypeToExtension(detectedMimeType);
+    const outputPath = path.join(tempDir, `narration-${sceneIndex}${ext}`);
+    await fs.writeFile(outputPath, Buffer.from(await response.arrayBuffer()));
+    return outputPath;
+  }
   const prefix = 'base64,';
   const base64Index = dataUrl.indexOf(prefix);
   if (!dataUrl.startsWith('data:') || base64Index === -1) return undefined;

@@ -47,6 +47,21 @@ function testTwoRecordedAffirmationsAreSplitAcrossMovie() {
   }
 }
 
+function testStorageBackedRecordingsAreUsableForRender() {
+  const scenes = buildScenesForRender({
+    storyboard: storyboard(2),
+    affirmations: ['I speak with confidence', 'My voice carries power'],
+    voiceRecordings: [
+      { affirmationIndex: 0, audioUrl: 'https://example.com/storage/audio-0.webm', mimeType: 'audio/webm', durationMs: 3000 },
+      { affirmationIndex: 1, audioUrl: 'https://example.com/storage/audio-1.webm', mimeType: 'audio/webm', durationMs: 3500 },
+    ],
+    language: 'en',
+  });
+
+  assert.strictEqual(scenes[0].narrationAudioDataUrl, 'https://example.com/storage/audio-0.webm');
+  assert.strictEqual(scenes[1].narrationAudioDataUrl, 'https://example.com/storage/audio-1.webm');
+}
+
 function testRenderUsesAllAvailableAffirmationsAndMatchingRecordings() {
   const affirmations = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'];
   const voiceRecordings = affirmations.map((_, index) => ({
@@ -222,6 +237,7 @@ function testEmptyEmotionalImagesPreservesExistingBehavior() {
 
 function main() {
   testTwoRecordedAffirmationsAreSplitAcrossMovie();
+  testStorageBackedRecordingsAreUsableForRender();
   testRenderUsesAllAvailableAffirmationsAndMatchingRecordings();
   testPartialRecordingsDoNotGetSpreadAcrossUnrelatedAffirmations();
   testSceneDescriptionsDoNotBecomeAffirmationNarrationWhenAffirmationsExist();

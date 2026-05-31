@@ -5,6 +5,7 @@ import { buildMindMovieScenePlan } from './scene-plan';
 type VoiceRecording = {
   affirmationIndex: number;
   audioDataUrl?: string;
+  audioUrl?: string;
   mimeType?: string;
   durationMs?: number;
 };
@@ -32,7 +33,7 @@ export function buildScenesForRender(movie: {
   const sceneCount = normalizedStoryboard.length;
   const affirmations = Array.isArray(movie.affirmations) ? movie.affirmations.filter(Boolean) : [];
   const recordings = (Array.isArray(movie.voiceRecordings) ? movie.voiceRecordings : [])
-    .filter((recording) => Boolean(recording.audioDataUrl))
+    .filter((recording) => Boolean(recording.audioDataUrl || recording.audioUrl))
     .sort((a, b) => a.affirmationIndex - b.affirmationIndex);
   const recordingByAffirmationIndex = new Map(recordings.map((recording) => [recording.affirmationIndex, recording]));
 
@@ -58,7 +59,7 @@ export function buildScenesForRender(movie: {
       imagePrompt: scene.imagePrompt,
       title: scene.title,
       description: scene.description,
-      narrationAudioDataUrl: recording?.audioDataUrl,
+      narrationAudioDataUrl: recording?.audioDataUrl ?? recording?.audioUrl,
       narrationMimeType: recording?.mimeType,
       narrationDurationMs: recording?.durationMs,
       language: movie.language,
