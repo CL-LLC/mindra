@@ -32,6 +32,7 @@ import {
 import { createVideoGenerators } from "../generators";
 import type { NarrationTrack } from "../generators/types";
 import { buildNarrationTracks } from "../narration-tracks";
+import { resolveRecordedNarrationAudio } from "../recorded-narration-audio";
 import OpenAI from "openai";
 
 const execAsync = promisify(exec);
@@ -494,26 +495,13 @@ async function writeNarrationRecording(
   dataUrl?: string,
   mimeType?: string
 ): Promise<string | undefined> {
-  if (!dataUrl) return undefined;
-  const prefix = "base64,";
-  const base64Index = dataUrl.indexOf(prefix);
-  if (!dataUrl.startsWith("data:") || base64Index === -1) return undefined;
-  const meta = dataUrl.slice(5, base64Index - 1);
-  const payload = dataUrl.slice(base64Index + prefix.length);
-  const detectedMimeType = meta || mimeType || "audio/webm";
-  const ext = mimeTypeToExtension(detectedMimeType);
-  const outputPath = path.join(tempDir, `narration-${sceneIndex}${ext}`);
-  await fs.writeFile(outputPath, Buffer.from(payload, "base64"));
-  return outputPath;
-}
-
-function mimeTypeToExtension(mimeType: string): string {
-  if (mimeType.includes("webm")) return ".webm";
-  if (mimeType.includes("wav")) return ".wav";
-  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return ".mp3";
-  if (mimeType.includes("mp4") || mimeType.includes("m4a")) return ".m4a";
-  if (mimeType.includes("ogg")) return ".ogg";
-  return ".webm";
+  const recorded = await resolveRecordedNarrationAudio({
+    tempDir,
+    sceneIndex,
+    source: dataUrl,
+    mimeType,
+  });
+  return recorded?.path;
 }
 
 async function getMediaDurationSeconds(filePath: string): Promise<number> {

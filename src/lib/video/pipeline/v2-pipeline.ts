@@ -18,6 +18,7 @@ import {
   type NarrationTrackV2,
 } from '../v2';
 import { buildNarrationTracks as buildSceneNarrationTracks } from '../narration-tracks';
+import { resolveRecordedNarrationAudio } from '../recorded-narration-audio';
 import { createVideoGenerators } from '../generators';
 import { getMusicAsset, resolveMusicAssetPath } from '../music-registry';
 import {
@@ -105,26 +106,24 @@ async function buildNarrationTracks(
 
       // Try recorded audio first
       if (shot.narrationAudioDataUrl) {
-        const prefix = 'base64,';
-        const base64Index = shot.narrationAudioDataUrl.indexOf(prefix);
-        if (shot.narrationAudioDataUrl.startsWith('data:') && base64Index !== -1) {
-          const meta = shot.narrationAudioDataUrl.slice(5, base64Index - 1);
-          const payload = shot.narrationAudioDataUrl.slice(base64Index + prefix.length);
-          if (payload.length > 0) {
-            const ext = meta.includes('webm') ? 'webm' : meta.includes('wav') ? 'wav' : meta.includes('ogg') ? 'ogg' : 'mp3';
-            const audioPath = path.join(tempDir, `narration-v2-${shotIndex}.${ext}`);
-            await fs.writeFile(audioPath, Buffer.from(payload, 'base64'));
-            try {
-              const { stdout } = await execAsync(
-                `ffprobe -v quiet -show_entries format=duration -of csv=p=0 ${shellQuote(audioPath)}`,
-              );
-              const clipDuration = parseFloat(stdout.trim()) || 0;
-              console.log(`[mindra] audio recorded shot=${shotIndex} duration=${clipDuration.toFixed(2)}s`);
-              return { path: audioPath, sourceType: 'recorded', clipDuration };
-            } catch {
-              console.log(`[mindra] audio recorded shot=${shotIndex} duration=unknown`);
-              return { path: audioPath, sourceType: 'recorded', clipDuration: 0 };
-            }
+        const recorded = await resolveRecordedNarrationAudio({
+          tempDir,
+          sceneIndex: shotIndex,
+          source: shot.narrationAudioDataUrl,
+          mimeType: shot.narrationMimeType,
+          filePrefix: 'narration-v2',
+        });
+        if (recorded) {
+          try {
+            const { stdout } = await execAsync(
+              `ffprobe -v quiet -show_entries format=duration -of csv=p=0 ${shellQuote(recorded.path)}`,
+            );
+            const clipDuration = parseFloat(stdout.trim()) || 0;
+            console.log(`[mindra] audio recorded shot=${shotIndex} duration=${clipDuration.toFixed(2)}s`);
+            return { path: recorded.path, sourceType: 'recorded', clipDuration };
+          } catch {
+            console.log(`[mindra] audio recorded shot=${shotIndex} duration=unknown`);
+            return { path: recorded.path, sourceType: 'recorded', clipDuration: 0 };
           }
         }
       }
